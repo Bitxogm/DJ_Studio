@@ -16,6 +16,8 @@ export default tseslint.config(
       '**/*.mjs',
       '**/*.cjs',
       'packages/shared/dist/**',
+      '**/next-env.d.ts',
+      'apps/backend/src/generated/**',
     ],
   },
 
@@ -24,6 +26,9 @@ export default tseslint.config(
   // ── TypeScript con type-checking ─────────────────────────────────────────────
   {
     files: ['apps/**/*.{ts,tsx}', 'packages/**/*.ts'],
+    // prisma.config.ts vive fuera del rootDir ("./src") del tsconfig del backend;
+    // se lintea aparte, sin type-checking, en el bloque de abajo.
+    ignores: ['apps/backend/prisma.config.ts'],
     extends: [...tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       parserOptions: {
@@ -47,6 +52,12 @@ export default tseslint.config(
         { checksVoidReturn: { arguments: false } },
       ],
     },
+  },
+
+  // ── prisma.config.ts: TS sin type-checking (fuera del rootDir del tsconfig) ──
+  {
+    files: ['apps/backend/prisma.config.ts'],
+    extends: [...tseslint.configs.recommended],
   },
 
   // ── Frontend: reglas de Next.js ──────────────────────────────────────────────

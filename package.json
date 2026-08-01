@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=24.18.1",
+    "pnpm": ">=9.12.0"
+  },
   "scripts": {
     "dev": "pnpm --parallel --filter \"./apps/*\" run dev",
     "build": "pnpm --filter @beatforge/shared run build && pnpm --parallel --filter \"./apps/*\" run build",
@@ -10,6 +14,9 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "typecheck": "pnpm --parallel --filter \"./apps/*\" run lint",
+    "test": "pnpm --parallel --filter \"./apps/*\" run test",
+    "test:watch": "pnpm --parallel --filter \"./apps/*\" run test:watch",
+    "check-env": "bash scripts/check-env.sh",
     "clean": "find . -name 'node_modules' -type d -prune -exec rm -rf '{}' + ; find . -name 'dist' -type d -not -path '*/.git/*' -prune -exec rm -rf '{}' + ; find . -name '.next' -type d -prune -exec rm -rf '{}' +",
     "prepare": "husky"
   },

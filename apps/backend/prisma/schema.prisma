@@ -1,0 +1,130 @@
+// Prisma ORM v7: la URL de conexión vive en prisma.config.ts, no aquí.
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Un usuario de BeatForge. Dueño de sus Proyectos y Samples.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  projects Project[]
+  samples  Sample[]
+  sessions Session[]
+}
+
+/// Sesión de autenticación: un refresh token revocable por dispositivo/navegador.
+/// Nunca se guarda el token en plano, solo su hash.
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshTokenHash])
+}
+
+/// Una canción/sesión de trabajo. Contenedor de Tracks con metadatos globales.
+model Project {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  bpm       Int      @default(120)
+  key       String?
+  swing     Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tracks Track[]
+
+  @@index([userId])
+}
+
+enum TrackType {
+  DRUM
+  SYNTH
+  SAMPLE
+  BASS
+}
+
+/// Una pista dentro de un Proyecto (batería, bajo, synth, sample...), con su
+/// propio instrumento (Tone.js) y posición en el mixer.
+model Track {
+  id               String    @id @default(cuid())
+  projectId        String
+  name             String
+  type             TrackType
+  order            Int
+  volume           Float     @default(0.8)
+  muted            Boolean   @default(false)
+  soloed           Boolean   @default(false)
+  /// Parámetros del instrumento/sampler de Tone.js (forma libre, definida en cliente)
+  instrumentConfig Json
+  sampleId         String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  project  Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // Un Sample puede estar en uso por varios Tracks: si se borra, el Track no
+  // se borra en cascada, solo pierde la referencia (queda sin sample asignado).
+  sample   Sample?   @relation(fields: [sampleId], references: [id], onDelete: SetNull)
+  patterns Pattern[]
+
+  @@index([projectId])
+  @@index([sampleId])
+}
+
+/// Patrón de secuenciador de pasos (16 steps), reutilizable y colocable en la
+/// timeline de arreglo del Proyecto (timelinePosition = compás de inicio).
+model Pattern {
+  id               String   @id @default(cuid())
+  trackId          String
+  name             String
+  /// Array de 16 posiciones: [{ active, note, velocity }, ...]
+  steps            Json
+  timelinePosition Int
+  lengthInBars     Int      @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  track Track @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  @@index([trackId])
+}
+
+/// Archivo de audio subido por el usuario (kick, loop, vocal...), reutilizable
+/// entre varios Tracks/Proyectos del mismo usuario.
+model Sample {
+  id              String   @id @default(cuid())
+  userId          String
+  filename        String
+  originalName    String
+  mimeType        String
+  sizeBytes       Int
+  durationSeconds Float?
+  storagePath     String
+  createdAt       DateTime @default(now())
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tracks Track[]
+
+  @@index([userId])
+}

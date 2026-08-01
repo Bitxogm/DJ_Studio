@@ -8,12 +8,31 @@ dist/
 out/
 build/
 
-# Environment
+# Environment (cualquier variante real; .env.example es la única excepción)
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+
+# Certificados y claves privadas
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Credenciales de cloud / SSH
+.aws/
+.ssh/
+
+# Volúmenes de datos de Docker (si se montan como bind mount local)
+postgres-data/
+postgres_data/
+pgdata/
+
+# Ficheros de secretos
+secrets.json
+credentials.json
+*.secrets.json
 
 # Logs
 *.log
@@ -26,8 +45,10 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
-# Editor
-.vscode/
+# Editor (se comparten settings.json y extensions.json, el resto no)
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo
@@ -39,6 +60,9 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# Prisma Client generado (se regenera con `prisma generate`, no se versiona)
+apps/backend/src/generated/
 
 # Docker
 .docker/

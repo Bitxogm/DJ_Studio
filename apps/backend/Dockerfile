@@ -1,4 +1,4 @@
-FROM node:22-alpine AS base
+FROM node:24-alpine AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
@@ -33,7 +33,7 @@ COPY package.json pnpm-workspace.yaml ./
 RUN pnpm --filter @beatforge/backend run build
 
 # ── runner: imagen mínima de producción ──────────────────────────────────────
-FROM node:22-alpine AS runner
+FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PNPM_HOME="/pnpm"

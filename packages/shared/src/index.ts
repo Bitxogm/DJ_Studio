@@ -1,67 +1,78 @@
+// Tipos consumibles desde frontend y backend sin depender de @prisma/client.
+// Reflejan los modelos de apps/backend/prisma/schema.prisma. Las fechas son
+// `string` (ISO), no `Date`: así es como llegan realmente en un JSON de la API.
+
 // ─── User ─────────────────────────────────────────────────────────────────────
+// Sin passwordHash: este tipo es para consumo externo, el hash nunca sale del backend.
 export interface User {
   id: string;
   email: string;
-  username: string;
   displayName: string;
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ─── Project ──────────────────────────────────────────────────────────────────
 export interface Project {
   id: string;
-  name: string;
   userId: string;
+  name: string;
   bpm: number;
-  timeSignature: [number, number];
-  createdAt: Date;
-  updatedAt: Date;
+  key: string | null;
+  swing: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ─── Track ────────────────────────────────────────────────────────────────────
-export type TrackType = 'instrument' | 'audio' | 'bus';
+export const TRACK_TYPES = ['DRUM', 'SYNTH', 'SAMPLE', 'BASS'] as const;
+export type TrackType = (typeof TRACK_TYPES)[number];
 
 export interface Track {
   id: string;
   projectId: string;
   name: string;
   type: TrackType;
+  order: number;
+  volume: number;
   muted: boolean;
   soloed: boolean;
-  volume: number;
-  pan: number;
-  order: number;
+  /** Parámetros del instrumento/sampler de Tone.js (forma libre, definida en cliente) */
+  instrumentConfig: Record<string, unknown>;
+  sampleId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ─── Pattern ──────────────────────────────────────────────────────────────────
+export interface PatternStep {
+  active: boolean;
+  note: string | null;
+  velocity: number;
+}
+
 export interface Pattern {
   id: string;
-  projectId: string;
+  trackId: string;
   name: string;
-  bars: number;
-  steps: number;
+  steps: PatternStep[];
+  timelinePosition: number;
+  lengthInBars: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ─── Sample ───────────────────────────────────────────────────────────────────
 export interface Sample {
   id: string;
   userId: string;
-  name: string;
   filename: string;
+  originalName: string;
   mimeType: string;
-  durationMs: number;
   sizeBytes: number;
-  createdAt: Date;
-}
-
-// ─── Session ──────────────────────────────────────────────────────────────────
-export interface Session {
-  id: string;
-  userId: string;
-  token: string;
-  expiresAt: Date;
-  createdAt: Date;
+  durationSeconds: number | null;
+  storagePath: string;
+  createdAt: string;
 }
 
 // ─── API helpers ──────────────────────────────────────────────────────────────

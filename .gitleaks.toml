@@ -1,0 +1,12 @@
+title = "BeatForge gitleaks config"
+
+# Usa el ruleset por defecto de gitleaks (AWS keys, JWT, tokens de Slack/GitHub/etc.,
+# credenciales genéricas de alta entropía...) y solo añade excepciones puntuales.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Archivos con placeholders, no secretos reales"
+paths = [
+  '''\.env\.example$''',
+]

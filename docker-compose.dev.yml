@@ -7,7 +7,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-beatforge}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     ports:
-      - '5432:5432'
+      # Host remapeado a 5433: el 5432 del host ya está en uso por otro servicio.
+      # El puerto interno del contenedor (usado por backend vía red Docker) sigue en 5432.
+      - '${POSTGRES_HOST_PORT:-5433}:5432'
     volumes:
       - postgres_data_dev:/var/lib/postgresql/data
     healthcheck:
@@ -38,6 +40,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'wget',
+          '--no-verbose',
+          '--tries=1',
+          '--spider',
+          'http://localhost:${PORT:-3001}/api/health',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   frontend:
     build:
@@ -54,7 +70,14 @@ services:
     ports:
       - '3000:3000'
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3000/']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   postgres_data_dev:
