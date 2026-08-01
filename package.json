@@ -1,0 +1,38 @@
+{
+  "name": "beatforge",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" run dev",
+    "build": "pnpm --filter @beatforge/shared run build && pnpm --parallel --filter \"./apps/*\" run build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "typecheck": "pnpm --parallel --filter \"./apps/*\" run lint",
+    "clean": "find . -name 'node_modules' -type d -prune -exec rm -rf '{}' + ; find . -name 'dist' -type d -not -path '*/.git/*' -prune -exec rm -rf '{}' + ; find . -name '.next' -type d -prune -exec rm -rf '{}' +",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml,css}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.1",
+    "@commitlint/config-conventional": "^21.2.0",
+    "@eslint/js": "^9.39.5",
+    "@next/eslint-plugin-next": "^16.2.12",
+    "eslint": "^9",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.3.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.65.0"
+  }
+}
