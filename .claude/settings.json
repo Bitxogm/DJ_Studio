@@ -3,7 +3,9 @@
     "allow": [
       "Bash(pnpm --filter @beatforge/backend add argon2 jsonwebtoken zod cookie-parser express-rate-limit)",
       "Bash(pnpm --filter @beatforge/backend add -D @types/jsonwebtoken @types/cookie-parser)",
-      "Bash(pnpm lint *)"
+      "Bash(pnpm lint *)",
+      "Bash(git push *)",
+      "Bash(pnpm exec *)"
     ]
   }
 }
