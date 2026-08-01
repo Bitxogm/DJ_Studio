@@ -12,7 +12,9 @@ con backend/frontend propios, dockerizado y desplegado en VPS propio.
 - **Canvas/waveforms**: Konva.js o canvas nativo + WaveSurfer.js para samples
 - **Backend**: Node.js + Express + TypeScript
 - **BD**: PostgreSQL + Prisma
-- **Auth**: JWT access (corto) + refresh token en cookie httpOnly, hash con argon2
+- **Auth**: JWT access + refresh token aleatorio, AMBOS en cookies httpOnly
+  (nunca localStorage/JS). Passwords con argon2, refresh token hasheado con
+  SHA-256 (ver sección "Convenciones de auth" más abajo)
 - **Logging**: Pino (nunca loggear passwords/tokens/datos personales)
 - **Testing**: Vitest (+ supertest en backend, @testing-library/react en frontend)
 - **Lint/format**: ESLint + Prettier, Husky + lint-staged + commitlint (conventional commits)
@@ -94,7 +96,7 @@ docker compose -f docker-compose.dev.yml up --build   # entorno dev completo
 - [x] Prompt 1.6: gitleaks + protección de secretos
 - [x] Prompt 1.7: Testing (Vitest) + Pino + health-check + .vscode + Dependabot
 - [x] Prompt 2: Prisma + modelo de datos (User, Project, Track, Pattern, Sample, Session)
-- [ ] Pendiente: auth (JWT + refresh + sesiones)
+- [x] Prompt 3: Auth completa (register/login/refresh/logout/me) + CRUD de Project protegido
 - [ ] Pendiente: integración Tone.js (secuenciador + samples + timeline de arreglo)
 - [ ] Pendiente: Docker Compose producción completo
 
@@ -110,3 +112,25 @@ docker compose -f docker-compose.dev.yml up --build   # entorno dev completo
   `.env.example`. La red interna de Docker sigue usando el 5432 normal.
 - Comandos: `pnpm --filter @beatforge/backend run db:migrate` (dev),
   `db:migrate:deploy` (prod), `db:studio`, `db:generate`.
+
+## Convenciones de auth (tras el Prompt 3)
+
+- **Access token**: JWT (`{ sub: userId }`, nada más), cookie httpOnly
+  `beatforge_access`, path `/`, expira en `JWT_EXPIRES_IN` (15m).
+- **Refresh token**: string aleatorio de 512 bits (`crypto.randomBytes(64)`),
+  NUNCA un JWT. En BD solo se guarda su hash SHA-256 (`Session.refreshTokenHash`).
+  Cookie httpOnly `beatforge_refresh`, path `/api/auth` (no solo `/api/auth/refresh`:
+  `logout` también necesita leerla para saber qué sesión revocar, y el navegador
+  no adjunta una cookie fuera de su path). Rotación obligatoria en cada refresh
+  (se revoca la sesión vieja y se crea una nueva en la misma transacción).
+- **Ninguno de los dos tokens toca JS del navegador**: ambos son cookies httpOnly.
+  El frontend (Next.js BFF) solo reenvía cookies vía sus Route Handlers, nunca
+  los lee ni los guarda en localStorage/sessionStorage/estado de React.
+- **`secure` de las cookies** se deriva de `NODE_ENV` (`config.cookies.secure`),
+  nunca es una variable manual — en producción siempre `true`, sin excepción.
+- **Pertenencia de recursos**: todo el CRUD de `Project` filtra siempre por
+  `req.userId` (viene del JWT verificado por `requireAuth`), NUNCA por un
+  `userId` del body/params. Si el recurso no existe o es de otro usuario,
+  siempre `404` (nunca `403`, para no filtrar existencia de recursos ajenos).
+- Rate limiting estricto (5/15min) solo en `/api/auth/login` y `/api/auth/register`,
+  con limiters independientes entre sí (agotar uno no bloquea el otro).

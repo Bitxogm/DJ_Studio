@@ -30,7 +30,8 @@ services:
       PORT: ${PORT:-3001}
       DATABASE_URL: ${DATABASE_URL:-postgresql://beatforge:changeme@postgres:5432/beatforge_db}
       JWT_SECRET: ${JWT_SECRET:-dev_jwt_secret_change_in_production}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_jwt_refresh_secret_change_in_production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN:-7d}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
     volumes:
       - ./apps/backend/src:/app/apps/backend/src
