@@ -33,9 +33,13 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
       REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN:-7d}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      UPLOAD_DIR: ${UPLOAD_DIR:-./uploads}
+      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-50}
     volumes:
       - ./apps/backend/src:/app/apps/backend/src
       - ./packages/shared/src:/app/packages/shared/src
+      # UPLOAD_DIR (./uploads) es relativo al cwd del proceso (WORKDIR de este stage).
+      - uploads_data_dev:/app/apps/backend/uploads
     ports:
       - '3001:3001'
     depends_on:
@@ -82,3 +86,4 @@ services:
 
 volumes:
   postgres_data_dev:
+  uploads_data_dev:
