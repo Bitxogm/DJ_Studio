@@ -97,6 +97,7 @@ docker compose -f docker-compose.dev.yml up --build   # entorno dev completo
 - [x] Prompt 1.7: Testing (Vitest) + Pino + health-check + .vscode + Dependabot
 - [x] Prompt 2: Prisma + modelo de datos (User, Project, Track, Pattern, Sample, Session)
 - [x] Prompt 3: Auth completa (register/login/refresh/logout/me) + CRUD de Project protegido
+- [x] Prompt 4: CRUD de Track, Pattern y Sample (ownership en cadena, subida de audio)
 - [ ] Pendiente: integración Tone.js (secuenciador + samples + timeline de arreglo)
 - [ ] Pendiente: Docker Compose producción completo
 
@@ -134,3 +135,53 @@ docker compose -f docker-compose.dev.yml up --build   # entorno dev completo
   siempre `404` (nunca `403`, para no filtrar existencia de recursos ajenos).
 - Rate limiting estricto (5/15min) solo en `/api/auth/login` y `/api/auth/register`,
   con limiters independientes entre sí (agotar uno no bloquea el otro).
+
+## Ownership en cadena (tras el Prompt 4)
+
+Cada recurso verifica pertenencia subiendo por su cadena de relaciones hasta
+`User`, nunca confiando en un `userId` que venga del body/params. Middlewares
+en `src/middleware/ownership.middleware.ts`, siempre 404 si no existe o es de
+otro usuario (nunca 403):
+
+- **Project → User** (1 salto): `requireProjectOwnership`.
+- **Track → Project → User** (2 saltos): `requireTrackInProject` (cuando ya se
+  verificó el Project por `:projectId` en la URL) o `requireTrackOwnership`
+  (standalone, sin `:projectId` en la URL — usado por las rutas de Pattern).
+- **Pattern → Track → Project → User** (3 saltos): `requirePatternInTrack`
+  (requiere que antes haya corrido `requireTrackOwnership`).
+- **Sample → User** (1 salto, sin cadena: un Sample es directamente del
+  usuario, reutilizable entre proyectos): `requireSampleOwnership`.
+
+Cada middleware adjunta el recurso ya cargado a `req.project` / `req.track` /
+`req.pattern` / `req.sample` (declaration merging en `src/types/express.d.ts`)
+para que el controller no tenga que volver a consultarlo.
+
+**Nesting de URLs** (decisión deliberada, no todo cuelga de `/api/projects`):
+
+- Track: `/api/projects/:projectId/tracks` — el ownership de Project ya se
+  verifica en el mount de `app.ts`, antes de entrar a `trackRouter`.
+- Pattern: `/api/tracks/:trackId/patterns` (NO
+  `/api/projects/:projectId/tracks/:trackId/patterns`) — `trackId` ya es único
+  globalmente y anidar un 4º nivel solo alarga la URL sin aportar nada a la
+  autorización, que se verifica en servidor igualmente.
+- Sample: `/api/samples`, plano, fuera de `/api/projects` por completo.
+
+**Subida de audio** (`/api/samples`, multer + `src/middleware/upload.middleware.ts`):
+
+- Solo `audio/wav`, `audio/mpeg`, `audio/mp3`, `audio/ogg`. El límite de tamaño
+  (`MAX_FILE_SIZE_MB`) lo aplica multer mientras recibe el stream, antes de
+  terminar de escribir a disco.
+- Nombre de fichero siempre generado (`crypto.randomUUID()` + extensión del
+  mimetype), nunca el nombre original del usuario — `originalName` se guarda
+  aparte solo para mostrarlo en la UI.
+- Doble verificación de tipo: mimetype declarado (multer `fileFilter`) +
+  primeros bytes del fichero ya escrito (`src/utils/audioFileSignature.ts`,
+  comprobación manual de cabecera RIFF/WAVE, ID3/frame-sync MPEG, OggS — sin
+  dependencia nueva, evita `file-type` por ser ESM-only y no necesitar los
+  demás formatos que detecta).
+- Borrar un Sample nunca falla por estar en uso: `Track.sampleId` tiene
+  `onDelete: SetNull`, así que un Track que lo usaba simplemente se queda sin
+  sample asignado.
+- El volumen de `UPLOAD_DIR` está montado en ambos `docker-compose*.yml`
+  (`uploads_data_dev` / `uploads_data`) para que persista entre reinicios del
+  contenedor backend.
