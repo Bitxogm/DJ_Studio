@@ -7,6 +7,7 @@ import {
   updateProject,
 } from '../controllers/project.controller.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
+import { requireProjectOwnership } from '../middleware/ownership.middleware.js';
 import { validateBody } from '../middleware/validate.middleware.js';
 import { createProjectSchema, updateProjectSchema } from '../schemas/project.schema.js';
 
@@ -16,6 +17,11 @@ projectRouter.use(requireAuth);
 
 projectRouter.post('/', validateBody(createProjectSchema), createProject);
 projectRouter.get('/', listProjects);
-projectRouter.get('/:id', getProject);
-projectRouter.patch('/:id', validateBody(updateProjectSchema), updateProject);
-projectRouter.delete('/:id', deleteProject);
+projectRouter.get('/:projectId', requireProjectOwnership(), getProject);
+projectRouter.patch(
+  '/:projectId',
+  requireProjectOwnership(),
+  validateBody(updateProjectSchema),
+  updateProject,
+);
+projectRouter.delete('/:projectId', requireProjectOwnership(), deleteProject);
