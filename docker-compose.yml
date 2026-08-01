@@ -25,7 +25,10 @@ services:
     environment:
       NODE_ENV: production
       PORT: ${PORT:-3001}
-      DATABASE_URL: ${DATABASE_URL}
+      # Se construye a partir de POSTGRES_* en vez de heredar DATABASE_URL del .env:
+      # ese valor está pensado para procesos en el host, no para la red interna de
+      # Docker, donde postgres se resuelve por nombre de servicio (red "internal").
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
       REFRESH_TOKEN_EXPIRES_IN: ${REFRESH_TOKEN_EXPIRES_IN:-7d}
