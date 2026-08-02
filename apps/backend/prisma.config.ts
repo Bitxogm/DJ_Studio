@@ -10,6 +10,9 @@ export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
+    // SOLO usuarios/datos de desarrollo (ver prisma/seed.ts) — el propio
+    // script se niega a ejecutarse si NODE_ENV=production.
+    seed: 'tsx prisma/seed.ts',
   },
   datasource: {
     url: env('DATABASE_URL'),

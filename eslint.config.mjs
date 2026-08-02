@@ -26,9 +26,9 @@ export default tseslint.config(
   // ── TypeScript con type-checking ─────────────────────────────────────────────
   {
     files: ['apps/**/*.{ts,tsx}', 'packages/**/*.ts'],
-    // prisma.config.ts vive fuera del rootDir ("./src") del tsconfig del backend;
-    // se lintea aparte, sin type-checking, en el bloque de abajo.
-    ignores: ['apps/backend/prisma.config.ts'],
+    // prisma.config.ts y prisma/seed.ts viven fuera del rootDir ("./src") del
+    // tsconfig del backend; se lintean aparte, sin type-checking, más abajo.
+    ignores: ['apps/backend/prisma.config.ts', 'apps/backend/prisma/seed.ts'],
     extends: [...tseslint.configs.recommendedTypeChecked],
     languageOptions: {
       parserOptions: {
@@ -54,9 +54,9 @@ export default tseslint.config(
     },
   },
 
-  // ── prisma.config.ts: TS sin type-checking (fuera del rootDir del tsconfig) ──
+  // ── prisma.config.ts / prisma/seed.ts: TS sin type-checking (fuera del rootDir del tsconfig) ──
   {
-    files: ['apps/backend/prisma.config.ts'],
+    files: ['apps/backend/prisma.config.ts', 'apps/backend/prisma/seed.ts'],
     extends: [...tseslint.configs.recommended],
   },
 
