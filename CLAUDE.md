@@ -100,7 +100,11 @@ docker compose -f docker-compose.dev.yml up --build   # entorno dev completo
 - [x] Prompt 4: CRUD de Track, Pattern y Sample (ownership en cadena, subida de audio)
 - [x] Prompt 5: Frontend de autenticación (login/registro, BFF, shadcn/ui, tests)
 - [x] Prompt 6: Seed de desarrollo (2 usuarios demo) + quick login en /login
-- [ ] Pendiente: integración Tone.js (secuenciador + samples + timeline de arreglo)
+- [x] Prompt 7: Esqueleto visual de /studio (sidebar, tracks, diálogos, Zustand)
+- [x] Prompt 8: Tone.js -- un Track DRUM suena de verdad, sincronizado al grid de 16 steps
+- [ ] Pendiente: mezcla de varios tracks sonando a la vez, resto de TrackType
+      (SYNTH/SAMPLE/BASS), edición de steps por click, samples reales, timeline
+      de arreglo, efectos, exportación de audio
 - [ ] Pendiente: Docker Compose producción completo
 
 ## Prisma (notas específicas tras el Prompt 2)
@@ -305,3 +309,100 @@ solo en desarrollo):
   `grep -r "dev1@beatforge.local" .next/`: sin resultados. Si tocas este
   bloque, repite esa comprobación antes de dar el cambio por bueno — es
   fácil reintroducir una fuga condicionando solo en cliente.
+
+## Estudio: layout y datos (tras el Prompt 7)
+
+`/studio` es un Server Component (`src/app/studio/page.tsx`) que carga la
+lista inicial de Projects en el servidor (`src/lib/server/projects.ts`,
+habla directo con el backend reenviando la cookie de sesión) y se la pasa a
+`StudioShell` (cliente), que hace de orquestador: comprueba sesión
+(`useAuth`, redirige a `/login` si no hay), hidrata el store al montar, y
+dispara la carga de tracks cuando cambia `selectedProjectId`.
+
+- **Estado**: Zustand (`src/store/studio.ts` — `useStudioStore`), no Context
+  ni prop-drilling: ya era la decisión de stack para "estado del proyecto
+  musical". Guarda `projects`, `selectedProjectId`, `tracks`, `drumPattern`
+  (ver sección de Audio) y sus flags de loading. `selectProject()` resetea
+  `tracks`/`drumPattern` para no enseñar datos del proyecto anterior mientras
+  carga el nuevo.
+- **Mutaciones siempre por el BFF**: `src/app/api/projects/**` y
+  `src/app/api/tracks/**`, proxy genérico en `src/lib/server/apiProxy.ts`
+  (mismo patrón de traducción de errores que `authProxy.ts` — 401/404/400
+  traducidos a `{ message, code? }`, nunca se propaga el body crudo del
+  backend).
+- **Componentes** en `src/components/studio/`: `ProjectSidebar` (lista +
+  selección), `ProjectHeader` (nombre/BPM/key/swing editables inline,
+  PATCH al guardar), `TrackList`/`TrackRow` (mixer: badge de color por
+  `TrackType`, slider de volumen, mute/solo), `NewProjectDialog`/
+  `NewTrackDialog` (shadcn Dialog + react-hook-form + zod).
+- Toasts: éxito SOLO en creación de proyecto/track; error en cualquier
+  mutación fallida (crear, editar inline, mute/solo). Nunca toast de éxito
+  en ediciones/toggles — serían demasiado frecuentes/ruidosos.
+
+## Audio: Tone.js y el secuenciador (tras el Prompt 8)
+
+**Alcance deliberadamente acotado**: solo suena el primer Track de tipo
+`DRUM` del proyecto seleccionado, con un único sonido (`Tone.MembraneSynth`,
+el sintetizador estándar para kicks — no hace falta un sample todavía).
+Nada de mezcla de varios tracks, otros `TrackType`, edición de steps por
+click, efectos ni exportación: eso son prompts futuros (ver checklist).
+
+**Por qué Tone.Sequence y no Tone.Loop**: `Pattern.steps` ya es un array fijo
+de 16 elementos guardado en la BD. `Tone.Sequence(callback, events,
+subdivision)` toma ese array directamente y llama al callback una vez por
+elemento a la subdivisión dada (`'16n'`), pasando el propio valor — encaja
+exactamente con la forma de los datos. `Tone.Loop` solo dispara un callback
+periódico sin noción de "qué array recorre"; habría que llevar un contador
+de step a mano para conseguir lo mismo que `Sequence` ya hace.
+
+**Dónde vive la lógica**:
+
+- `src/hooks/useSequencer.ts`: TODA la orquestación de Tone.js (Transport,
+  MembraneSynth, Sequence). Los componentes visuales (`SequencerPanel`)
+  nunca importan `tone` ni tocan el Transport directamente — solo leen
+  `isPlaying`/`currentStep`/`canPlay` y llaman a `play()`/`stop()`.
+- `src/lib/sequencer/logic.ts`: lógica PURA sin `tone` ni React
+  (`resolveStepTrigger`, `findDrumTrack`, `getPlayDisabledReason`), extraída
+  a propósito para poder testearla sin depender de la Web Audio API (que no
+  existe en jsdom). `useSequencer` la usa dentro del callback de la
+  `Sequence`; `SequencerPanel` la usa para decidir el estado del botón Play.
+  El propio hook `useSequencer` NO tiene test directo (no hay forma
+  significativa de testear Tone.js real sin Web Audio, y mockearlo entero
+  habría sido un test frágil que no prueba nada real) — la cobertura está en
+  `logic.test.ts` (la lógica que sí importa) y en `SequencerPanel.test.tsx`
+  (mockeando `useSequencer`, comprobando que el botón se deshabilita bien).
+
+**Reglas de Tone.js que hay que respetar si se toca este código**:
+
+- `Tone.start()` SIEMPRE antes de tocar cualquier otra cosa de audio, y solo
+  dentro de un handler de click (política de autoplay del navegador). Es
+  seguro llamarlo en cada `play()`, no solo la primera vez — es un no-op si
+  el contexto ya está arrancado.
+- `Tone.Transport.bpm.value = project.bpm`, sincronizado en un efecto propio
+  que reacciona a cambios de `bpm` — funciona igual esté sonando o parado.
+- Una `Sequence`/`Part` ya iniciada con `.start()` no se puede volver a
+  arrancar sin cancelarla antes (Tone.js lanza si el nuevo `time` no es
+  estrictamente mayor que el anterior). `stop()` por eso hace
+  `dispose()` + `sequenceRef.current = null` siempre, y `play()` reconstruye
+  la Sequence si no existe — así nunca hay conflicto de tiempos entre
+  play/stop repetidos.
+- `Tone.Draw.schedule(callback, time)` para todo lo visual (mover el
+  playhead): los callbacks de `Transport`/`Sequence` se disparan _antes_ del
+  instante de audio real (look-ahead del scheduler), así que actualizar
+  React directamente ahí desincroniza el playhead del sonido. `Draw`
+  reprograma el callback contra el instante de audio correcto usando
+  `requestAnimationFrame`.
+- **Limpieza obligatoria**: un efecto con cleanup dispone el `MembraneSynth`
+  al desmontar; otro efecto (con `pattern` en las deps) para el Transport y
+  dispone la `Sequence` tanto al desmontar como cada vez que cambia el
+  pattern (cambio de proyecto/track) — Tone.js no libera nada de esto solo,
+  dejarlo vivo son nodos de audio reales colgados.
+
+**Cómo se verificó** (sin altavoces/oídos propios — honesto sobre el
+límite): build + typecheck limpios, `logic.test.ts` cubre la lógica de
+disparo/veto de steps, `SequencerPanel.test.tsx` cubre que el botón Play se
+deshabilita sin Track DRUM o sin Pattern, y se comprobó por curl que
+`GET /api/tracks/:trackId/patterns` devuelve los steps reales sembrados para
+el Kick de `dev1@beatforge.local`. Que el kick realmente suene (y no solo
+que el código esté bien cableado) solo se puede confirmar en un navegador
+real con audio activado — ver el README/instrucciones de prueba manual.
