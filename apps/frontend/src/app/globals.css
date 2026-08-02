@@ -2,11 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg: #0a0a0a;
-  --surface: #141414;
-  --border: #262626;
-  --accent: #7c3aed;
+@layer base {
+  :root {
+    /* beatforge: tema oscuro por defecto, acento cian (ver CLAUDE.md > Frontend). */
+    --background: 222 47% 4%;
+    --foreground: 210 40% 98%;
+    --card: 222 40% 7%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 40% 7%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 188 86% 53%;
+    --primary-foreground: 222 47% 6%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 188 86% 53%;
+    --radius: 0.5rem;
+  }
 }
 
 * {
@@ -14,12 +33,7 @@
 }
 
 body {
-  background: var(--bg);
-  color: #fafafa;
-  font-family:
-    system-ui,
-    -apple-system,
-    sans-serif;
+  @apply bg-background text-foreground;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

@@ -71,6 +71,9 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOSTNAME: '0.0.0.0'
+      # Nombre de servicio en la red "external" (compartida con backend), no
+      # localhost: los Route Handlers corren en el contenedor del frontend.
+      BACKEND_INTERNAL_URL: http://backend:3001
     depends_on:
       backend:
         condition: service_healthy

@@ -72,6 +72,9 @@ services:
     environment:
       NODE_ENV: development
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+      # Nombre de servicio en la red interna de Docker, no localhost: los Route
+      # Handlers corren en el contenedor del frontend, no en el navegador.
+      BACKEND_INTERNAL_URL: http://backend:3001
     volumes:
       - ./apps/frontend/src:/app/apps/frontend/src
       - ./packages/shared/src:/app/packages/shared/src

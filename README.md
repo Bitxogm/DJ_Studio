@@ -44,6 +44,24 @@ pnpm --filter @beatforge/backend run dev
 pnpm --filter @beatforge/frontend run dev
 ```
 
+> **Nota:** el backend carga el `.env` raíz del monorepo automáticamente (vía
+> `dotenv` en `src/config/env.ts`), pero Next.js no lo hace por el frontend —
+> solo lee `.env*` dentro de `apps/frontend/`. Por eso este modo necesita
+> `apps/frontend/.env.local` (gitignored, no se commitea) con al menos:
+>
+> ```bash
+> BACKEND_INTERNAL_URL=http://localhost:3001
+> ```
+>
+> Es la URL que usan los Route Handlers de `/api/auth/*` (BFF) para hablar con
+> el backend desde el servidor de Next.js. Si falta, esas rutas fallan con un
+> error 500 al arrancar la petición.
+>
+> Esto **no hace falta en el modo 3b**: `docker-compose.dev.yml` ya inyecta
+> `BACKEND_INTERNAL_URL=http://backend:3001` como variable de entorno del
+> contenedor del frontend (resuelve `backend` por nombre de servicio en la red
+> interna de Docker), así que ese fichero se ignora por completo ahí.
+
 ### 3b. Dev con Docker (todo incluido)
 
 ```bash
