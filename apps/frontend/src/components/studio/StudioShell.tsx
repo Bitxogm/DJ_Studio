@@ -10,12 +10,14 @@ import { toast } from 'sonner';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/hooks/useAuth';
 import { ApiRequestError } from '@/lib/api/httpError';
+import { listPatternsRequest } from '@/lib/api/patterns';
 import { listTracksRequest } from '@/lib/api/tracks';
+import { findDrumTrack } from '@/lib/sequencer/logic';
 import { useStudioStore } from '@/store/studio';
 import { NewProjectDialog } from './NewProjectDialog';
 import { ProjectHeader } from './ProjectHeader';
 import { ProjectSidebar } from './ProjectSidebar';
-import { SequencerPlaceholder } from './SequencerPlaceholder';
+import { SequencerPanel } from './SequencerPanel';
 import { StudioHeader } from './StudioHeader';
 import { TrackList } from './TrackList';
 
@@ -29,9 +31,12 @@ export function StudioShell({ initialProjects }: StudioShellProps) {
 
   const projects = useStudioStore((state) => state.projects);
   const selectedProjectId = useStudioStore((state) => state.selectedProjectId);
+  const tracks = useStudioStore((state) => state.tracks);
   const setProjects = useStudioStore((state) => state.setProjects);
   const setTracks = useStudioStore((state) => state.setTracks);
   const setLoadingTracks = useStudioStore((state) => state.setLoadingTracks);
+  const setDrumPattern = useStudioStore((state) => state.setDrumPattern);
+  const setLoadingPattern = useStudioStore((state) => state.setLoadingPattern);
 
   // Solo en el montaje inicial: las mutaciones posteriores (crear proyecto)
   // ya actualizan el store directamente, no hace falta re-sincronizar aquí.
@@ -67,6 +72,36 @@ export function StudioShell({ initialProjects }: StudioShellProps) {
       cancelled = true;
     };
   }, [selectedProjectId, setTracks, setLoadingTracks]);
+
+  // Alcance de este prompt: solo suena el primer Track DRUM del proyecto, así
+  // que solo hace falta cargar su Pattern. Depende del id del track DRUM (no
+  // del array `tracks` completo) para no volver a pedir el pattern cada vez
+  // que se mutea/soleaa/ajusta volumen en cualquier track del mixer.
+  const drumTrackId = findDrumTrack(tracks)?.id ?? null;
+
+  useEffect(() => {
+    if (!drumTrackId) {
+      setDrumPattern(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingPattern(true);
+    listPatternsRequest(drumTrackId)
+      .then((patterns) => {
+        if (!cancelled) setDrumPattern(patterns[0] ?? null);
+      })
+      .catch((error: unknown) => {
+        toast.error(
+          error instanceof ApiRequestError ? error.message : 'No se pudo conectar con el servidor',
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPattern(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [drumTrackId, setDrumPattern, setLoadingPattern]);
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
 
@@ -136,7 +171,7 @@ export function StudioShell({ initialProjects }: StudioShellProps) {
         </main>
       </div>
 
-      <SequencerPlaceholder />
+      <SequencerPanel bpm={selectedProject?.bpm ?? 120} />
     </div>
   );
 }
