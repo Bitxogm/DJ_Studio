@@ -98,6 +98,8 @@ docker compose -f docker-compose.dev.yml up --build   # entorno dev completo
 - [x] Prompt 2: Prisma + modelo de datos (User, Project, Track, Pattern, Sample, Session)
 - [x] Prompt 3: Auth completa (register/login/refresh/logout/me) + CRUD de Project protegido
 - [x] Prompt 4: CRUD de Track, Pattern y Sample (ownership en cadena, subida de audio)
+- [x] Prompt 5: Frontend de autenticación (login/registro, BFF, shadcn/ui, tests)
+- [x] Prompt 6: Seed de desarrollo (2 usuarios demo) + quick login en /login
 - [ ] Pendiente: integración Tone.js (secuenciador + samples + timeline de arreglo)
 - [ ] Pendiente: Docker Compose producción completo
 
@@ -185,3 +187,121 @@ para que el controller no tenga que volver a consultarlo.
 - El volumen de `UPLOAD_DIR` está montado en ambos `docker-compose*.yml`
   (`uploads_data_dev` / `uploads_data`) para que persista entre reinicios del
   contenedor backend.
+
+## Frontend (tras el Prompt 5)
+
+**Paleta y tipografía** (branding fijado, replicar en el resto de pantallas):
+
+- Tema oscuro por defecto (`className="dark"` en `<html>`, sin toggle de tema
+  por ahora). Fondo slate-950, acento cian (`--primary` / `--ring` en HSL
+  `188 86% 53%`, ≈ `#22d3ee`). Variables CSS en
+  `src/app/globals.css` (`@layer base > :root`), consumidas vía
+  `tailwind.config.ts` (`hsl(var(--x))`), patrón shadcn/ui clásico.
+- Tipografía: **Inter** para body/UI (`--font-sans`), **Chakra Petch** solo
+  para branding/headings (`--font-display`, clase utilitaria `font-display`)
+  — se carga con `next/font/google` en `src/app/layout.tsx`. Chakra Petch NO
+  se usa en párrafos largos (cansa la lectura a tamaños de body).
+- Los tokens de color legacy `forge.*` (definidos en el Prompt 1) se mantienen
+  para el homepage placeholder; los componentes nuevos usan los tokens
+  semánticos de shadcn (`bg-background`, `text-foreground`, `bg-primary`...).
+
+**shadcn/ui: instalado a mano, NO vía `npx shadcn init`** — la versión actual
+del CLI (v4.x) genera CSS para Tailwind v4 (`@import "shadcn/tailwind.css"`,
+variables en `oklch`) y este proyecto tiene Tailwind v3.4 fijado en package.json;
+mezclar ambos rompe el build (`border-border` no resuelve). Los componentes en
+`src/components/ui/` (`button`, `input`, `label`, `card`, `separator`, `sonner`,
+`spinner`, `form`) están escritos a mano en el estilo clásico de shadcn
+(CVA + Radix primitives + variables HSL), sin el CLI. Si se necesita un
+componente nuevo de shadcn, replicar este patrón manual — no correr el CLI de
+nuevo sin antes comprobar que ya soporta Tailwind v3, o se repetirá la rotura.
+
+**Arquitectura BFF de auth**:
+
+- `src/app/api/auth/{register,login,refresh,logout,me}/route.ts`: proxy hacia
+  el backend. Usan `BACKEND_INTERNAL_URL` (nueva var de entorno, servidor
+  únicamente — NUNCA `NEXT_PUBLIC_API_URL`, que es para el navegador y de
+  momento no se usa en ningún sitio real). En Docker apunta a
+  `http://backend:3001` (nombre de servicio); en dev sobre host,
+  `http://localhost:3001`. **Next.js no carga el `.env` raíz del monorepo
+  automáticamente para el frontend** (a diferencia del backend, que lo hace
+  explícito en `src/config/env.ts` vía `dotenv`) — para `pnpm --filter
+@beatforge/frontend dev` fuera de Docker hay que exportar `BACKEND_INTERNAL_URL`
+  a mano o crear un `apps/frontend/.env.local` (gitignored) con ese valor.
+  Vía `docker-compose*.yml` ya está inyectada como env del contenedor.
+- Traducción de errores centralizada en `src/lib/server/authProxy.ts`
+  (`translateAuthError`): 409 en registro → email duplicado, 401 en login →
+  credenciales incorrectas, 429 → rate limit, 400 → primer mensaje de Zod.
+  Las cookies `Set-Cookie` del backend se reenvían con
+  `Headers.getSetCookie()` (nunca `.get('set-cookie')`, que las colapsaría en
+  un solo string).
+- Cliente tipado hacia esos Route Handlers en `src/lib/api/auth.ts`
+  (`AuthApiError` con `{ message, code? }` ya traducido — nunca se propaga el
+  body crudo del backend al componente).
+- Validación de formularios (Zod) en `src/lib/validation/auth.ts`, mismo shape
+  que `apps/backend/src/schemas/auth.schema.ts` pero definida por separado en
+  frontend (no se movió a `packages/shared` para no tocar el backend fuera de
+  alcance de este prompt).
+- Estado de sesión: `src/hooks/useAuth.ts` (llama a `/api/auth/me` al montar,
+  expone `user` / `isLoading` / `login` / `register` / `logout`).
+- Componentes de auth en `src/components/auth/` (`LoginForm`, `RegisterForm`):
+  errores de campo SIEMPRE inline (react-hook-form + zodResolver), errores de
+  servidor SIEMPRE como toast (`sonner`), nunca al revés.
+- `src/app/(auth)/layout.tsx`: fondo/branding compartido de `/login` y
+  `/register`, y el único sitio que redirige a `/studio` si ya hay sesión
+  activa (comprobado con `useAuth`). `/studio` (`src/app/studio/page.tsx`)
+  hace la comprobación inversa (redirige a `/login` si no hay sesión).
+
+## Seed de desarrollo y Quick login (tras el Prompt 6)
+
+**Usuarios demo** (SOLO entorno local — nunca existen ni deben crearse en
+producción; no son secretos reales, son credenciales fijas de `.env`-less
+código pensadas para un `NODE_ENV=production` que las rechaza explícitamente):
+
+| Usuario  | Email                  | Password    | Contenido                                                                                          |
+| -------- | ---------------------- | ----------- | -------------------------------------------------------------------------------------------------- |
+| Demo Uno | `dev1@beatforge.local` | `Demo1234!` | Project "Mi primera sesión" (124 BPM, Am) con 2 Tracks (Kick/DRUM, Bajo/BASS) y 1 Pattern cada uno |
+| Demo Dos | `dev2@beatforge.local` | `Demo1234!` | Sin proyectos (simula un usuario recién registrado)                                                |
+
+- **Seed**: `apps/backend/prisma/seed.ts`. Idempotente por diseño: borra
+  (`deleteMany` por email) y recrea solo estos dos usuarios en cada
+  ejecución — nunca toca el resto de la BD. Las contraseñas se hashean con
+  el mismo `hashPassword` (argon2) que usa `auth.service.ts` en producción,
+  nunca un atajo en texto plano. **Se niega a ejecutarse si
+  `NODE_ENV=production`** (lanza y sale con código de error).
+- Conectado en `prisma.config.ts` (`migrations.seed`, se dispara solo tras
+  `prisma migrate dev`) y como script standalone:
+  `pnpm --filter @beatforge/backend run db:seed`.
+- Si cambias las credenciales, actualiza los TRES sitios a la vez: este
+  archivo, `apps/backend/prisma/seed.ts` y
+  `apps/frontend/src/lib/dev/demoUsers.ts`.
+
+**Quick login en `/login`** (botones que rellenan y envían el login por ti,
+solo en desarrollo):
+
+- Las credenciales viven como constante de código en
+  `apps/frontend/src/lib/dev/demoUsers.ts` (`DEV_ONLY_DEMO_USERS`) —
+  deliberadamente NO en variables de entorno, para que no exista ni la
+  posibilidad de que alguien las configure sin querer en un `.env` de
+  producción.
+- **Gate en Server Component, no en cliente ni en CSS**:
+  `src/components/auth/QuickLoginSection.tsx` (sin `'use client'`) comprueba
+  `process.env.NODE_ENV === 'development'` y devuelve `null` si no lo es,
+  ANTES de renderizar `src/components/auth/QuickLoginButtons.tsx` (el
+  componente cliente con los botones interactivos). Al ser un Server
+  Component, ese chequeo corre en el servidor durante el render de cada
+  petición: si es falso, el componente cliente nunca entra en el árbol RSC
+  de esa petición, así que ni el HTML servido ni el payload React enviado al
+  navegador lo referencian. Esto es distinto (y más robusto) que ocultar el
+  bloque con CSS (`display: none` sigue mandando el HTML/JS al navegador) o
+  con una condición dentro de un componente cliente (el código sigue
+  llegando al bundle, solo se decide en el navegador si se pinta).
+- Defensa adicional: `QuickLoginButtons.tsx` repite el mismo chequeo al
+  principio de su propio cuerpo. Next.js inlinea `process.env.NODE_ENV` en
+  el build, así que en un build de producción ese `if` se resuelve en tiempo
+  de compilación y el minificador elimina el resto del cuerpo del
+  componente (incluidas las credenciales importadas de `demoUsers.ts`) del
+  chunk de JS resultante.
+- Verificado con `pnpm --filter @beatforge/frontend build` +
+  `grep -r "dev1@beatforge.local" .next/`: sin resultados. Si tocas este
+  bloque, repite esa comprobación antes de dar el cambio por bueno — es
+  fácil reintroducir una fuga condicionando solo en cliente.
