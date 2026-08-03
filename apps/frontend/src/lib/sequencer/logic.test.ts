@@ -2,10 +2,16 @@ import type { PatternStep, Track } from '@beatforge/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyMixerStateToVoices,
+  defaultNoteForTrackType,
   findDrumTrack,
   getPlayDisabledReason,
+  hasAnySoloedTrack,
+  isTrackAudible,
+  linearVolumeToDb,
   resolveStepTrigger,
   toggleStepActive,
+  type AudioVoiceLike,
 } from './logic';
 
 function step(overrides: Partial<PatternStep> = {}): PatternStep {
@@ -30,20 +36,35 @@ function track(overrides: Partial<Track> = {}): Track {
   };
 }
 
-describe('resolveStepTrigger', () => {
-  it('devuelve null si el step no está activo', () => {
-    expect(resolveStepTrigger(step({ active: false }))).toBeNull();
+describe('defaultNoteForTrackType', () => {
+  it('DRUM usa C1', () => {
+    expect(defaultNoteForTrackType('DRUM')).toBe('C1');
   });
 
-  it('usa C1 como nota por defecto para un step activo sin nota propia', () => {
-    expect(resolveStepTrigger(step({ active: true, note: null, velocity: 1 }))).toEqual({
-      note: 'C1',
+  it('BASS usa C2 (una octava más grave)', () => {
+    expect(defaultNoteForTrackType('BASS')).toBe('C2');
+  });
+
+  it('tipos sin synth soportado hoy devuelven igualmente un valor', () => {
+    expect(defaultNoteForTrackType('SYNTH')).toBe('C3');
+    expect(defaultNoteForTrackType('SAMPLE')).toBe('C3');
+  });
+});
+
+describe('resolveStepTrigger', () => {
+  it('devuelve null si el step no está activo', () => {
+    expect(resolveStepTrigger(step({ active: false }), 'C1')).toBeNull();
+  });
+
+  it('usa el defaultNote dado para un step activo sin nota propia', () => {
+    expect(resolveStepTrigger(step({ active: true, note: null, velocity: 1 }), 'C2')).toEqual({
+      note: 'C2',
       velocity: 1,
     });
   });
 
-  it('respeta la nota del step si viene definida', () => {
-    expect(resolveStepTrigger(step({ active: true, note: 'A1', velocity: 0.5 }))).toEqual({
+  it('respeta la nota del step si viene definida, ignorando el defaultNote', () => {
+    expect(resolveStepTrigger(step({ active: true, note: 'A1', velocity: 0.5 }), 'C2')).toEqual({
       note: 'A1',
       velocity: 0.5,
     });
@@ -116,5 +137,121 @@ describe('getPlayDisabledReason', () => {
     expect(
       getPlayDisabledReason({ drumTrack: track(), hasPattern: true, isLoadingPattern: false }),
     ).toBeNull();
+  });
+});
+
+describe('hasAnySoloedTrack', () => {
+  it('devuelve false si no hay tracks', () => {
+    expect(hasAnySoloedTrack([])).toBe(false);
+  });
+
+  it('devuelve false si ningún track tiene solo activado', () => {
+    expect(hasAnySoloedTrack([track({ soloed: false }), track({ soloed: false })])).toBe(false);
+  });
+
+  it('devuelve true si al menos un track tiene solo activado', () => {
+    expect(hasAnySoloedTrack([track({ soloed: false }), track({ soloed: true })])).toBe(true);
+  });
+});
+
+describe('isTrackAudible', () => {
+  it('sin ningún solo activo en el proyecto, un track normal (no muted) suena', () => {
+    expect(isTrackAudible({ muted: false, soloed: false }, false)).toBe(true);
+  });
+
+  it('sin ningún solo activo, un track muteado no suena', () => {
+    expect(isTrackAudible({ muted: true, soloed: false }, false)).toBe(false);
+  });
+
+  it('con un solo activo en OTRO track, este track (no muted, no soloed) no suena', () => {
+    expect(isTrackAudible({ muted: false, soloed: false }, true)).toBe(false);
+  });
+
+  it('con un solo activo y ESTE track es el soloeado, suena', () => {
+    expect(isTrackAudible({ muted: false, soloed: true }, true)).toBe(true);
+  });
+
+  it('mute gana sobre solo: muted + soloed (siendo este el propio track soloeado) no suena', () => {
+    expect(isTrackAudible({ muted: true, soloed: true }, true)).toBe(false);
+  });
+
+  it('muted true, sin ningún solo activo en el proyecto, tampoco suena', () => {
+    expect(isTrackAudible({ muted: true, soloed: false }, false)).toBe(false);
+  });
+});
+
+describe('linearVolumeToDb', () => {
+  it('0 (fader al mínimo) es silencio total (-Infinity dB)', () => {
+    expect(linearVolumeToDb(0)).toBe(-Infinity);
+  });
+
+  it('1 (fader al máximo) es ganancia unidad (0 dB)', () => {
+    expect(linearVolumeToDb(1)).toBeCloseTo(0);
+  });
+
+  it('valores negativos (no deberían darse, pero por si acaso) también son silencio', () => {
+    expect(linearVolumeToDb(-1)).toBe(-Infinity);
+  });
+
+  it('un valor intermedio da un valor negativo de dB (más silencioso que 0dB)', () => {
+    const db = linearVolumeToDb(0.5);
+    expect(db).toBeLessThan(0);
+    expect(db).toBeGreaterThan(-Infinity);
+  });
+});
+
+function fakeVoice(volumeDb = 0): AudioVoiceLike {
+  return { synth: { volume: { value: volumeDb } } };
+}
+
+describe('applyMixerStateToVoices', () => {
+  it('mover el fader de un Track sin voz registrada (sin dar a play todavía) no rompe nada', () => {
+    const tracks = [track({ id: 't1', volume: 0.3 })];
+    const voices = new Map<string, AudioVoiceLike>(); // vacío: play() no se ha llamado
+
+    expect(() => applyMixerStateToVoices(tracks, voices)).not.toThrow();
+    expect(voices.size).toBe(0);
+  });
+
+  it('ignora silenciosamente Tracks sin voz aunque otros sí la tengan (Track sin Pattern o tipo no soportado)', () => {
+    const withVoice = track({ id: 'with-voice', volume: 0.8 });
+    const withoutVoice = track({ id: 'without-voice', volume: 0.5 });
+    const voices = new Map<string, AudioVoiceLike>([['with-voice', fakeVoice()]]);
+
+    expect(() => applyMixerStateToVoices([withVoice, withoutVoice], voices)).not.toThrow();
+    expect(voices.has('without-voice')).toBe(false);
+    expect(voices.get('with-voice')?.synth.volume.value).toBeCloseTo(linearVolumeToDb(0.8));
+  });
+
+  it('aplica el volumen convertido a dB a un Track normal (no muted, sin solos activos)', () => {
+    const t = track({ id: 't1', volume: 0.5, muted: false, soloed: false });
+    const voices = new Map<string, AudioVoiceLike>([['t1', fakeVoice()]]);
+
+    applyMixerStateToVoices([t], voices);
+
+    expect(voices.get('t1')?.synth.volume.value).toBeCloseTo(linearVolumeToDb(0.5));
+  });
+
+  it('silencia (-Infinity) un Track muteado', () => {
+    const t = track({ id: 't1', volume: 1, muted: true, soloed: false });
+    const voices = new Map<string, AudioVoiceLike>([['t1', fakeVoice()]]);
+
+    applyMixerStateToVoices([t], voices);
+
+    expect(voices.get('t1')?.synth.volume.value).toBe(-Infinity);
+  });
+
+  it('silencia un Track no soloeado cuando otro Track del proyecto sí tiene solo activo', () => {
+    const soloed = track({ id: 'solo-track', volume: 1, soloed: true });
+    const other = track({ id: 'other-track', volume: 1, soloed: false });
+    const voices = new Map<string, AudioVoiceLike>([
+      ['solo-track', fakeVoice()],
+      ['other-track', fakeVoice()],
+    ]);
+
+    applyMixerStateToVoices([soloed, other], voices);
+
+    expect(voices.get('solo-track')?.synth.volume.value).toBeCloseTo(linearVolumeToDb(1));
+    expect(voices.get('other-track')?.synth.volume.value).toBe(-Infinity);
   });
 });
