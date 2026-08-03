@@ -1,7 +1,12 @@
 import type { PatternStep, Track } from '@beatforge/shared';
 import { describe, expect, it } from 'vitest';
 
-import { findDrumTrack, getPlayDisabledReason, resolveStepTrigger } from './logic';
+import {
+  findDrumTrack,
+  getPlayDisabledReason,
+  resolveStepTrigger,
+  toggleStepActive,
+} from './logic';
 
 function step(overrides: Partial<PatternStep> = {}): PatternStep {
   return { active: false, note: null, velocity: 0.8, ...overrides };
@@ -58,6 +63,33 @@ describe('findDrumTrack', () => {
     const drum1 = track({ id: 'd1', type: 'DRUM', order: 0 });
     const drum2 = track({ id: 'd2', type: 'DRUM', order: 1 });
     expect(findDrumTrack([track({ type: 'BASS' }), drum1, drum2])).toBe(drum1);
+  });
+});
+
+describe('toggleStepActive', () => {
+  it('invierte solo el step del índice indicado', () => {
+    const steps = [step({ active: false }), step({ active: true }), step({ active: false })];
+    const result = toggleStepActive(steps, 0);
+
+    expect(result[0].active).toBe(true);
+    expect(result[1].active).toBe(true);
+    expect(result[2].active).toBe(false);
+  });
+
+  it('no muta el array ni los steps originales', () => {
+    const steps = [step({ active: false })];
+    const result = toggleStepActive(steps, 0);
+
+    expect(steps[0].active).toBe(false);
+    expect(result).not.toBe(steps);
+    expect(result[0]).not.toBe(steps[0]);
+  });
+
+  it('preserva note y velocity del step invertido', () => {
+    const steps = [step({ active: false, note: 'A1', velocity: 0.7 })];
+    const result = toggleStepActive(steps, 0);
+
+    expect(result[0]).toEqual({ active: true, note: 'A1', velocity: 0.7 });
   });
 });
 

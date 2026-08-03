@@ -33,6 +33,7 @@ export function StudioShell({ initialProjects }: StudioShellProps) {
   const selectedProjectId = useStudioStore((state) => state.selectedProjectId);
   const tracks = useStudioStore((state) => state.tracks);
   const setProjects = useStudioStore((state) => state.setProjects);
+  const setCurrentUserId = useStudioStore((state) => state.setCurrentUserId);
   const setTracks = useStudioStore((state) => state.setTracks);
   const setLoadingTracks = useStudioStore((state) => state.setLoadingTracks);
   const setDrumPattern = useStudioStore((state) => state.setDrumPattern);
@@ -43,6 +44,15 @@ export function StudioShell({ initialProjects }: StudioShellProps) {
   useEffect(() => {
     setProjects(initialProjects);
   }, [initialProjects, setProjects]);
+
+  // useAuth().user.id es la única fuente de verdad de "quién ha iniciado
+  // sesión"; esto solo la refleja en el store para que las acciones de
+  // selección de proyecto sepan bajo qué clave de localStorage leer/escribir
+  // (ver src/store/studio.ts). Se dispara de nuevo si cambia el usuario
+  // (logout de uno, login de otro) sin necesidad de recargar la página.
+  useEffect(() => {
+    setCurrentUserId(user?.id ?? null);
+  }, [user?.id, setCurrentUserId]);
 
   useEffect(() => {
     if (!isLoading && !user) {

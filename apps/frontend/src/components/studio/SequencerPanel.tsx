@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronUp, Play, Square } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { usePatternEditor } from '@/hooks/usePatternEditor';
 import { useSequencer } from '@/hooks/useSequencer';
 import { findDrumTrack, getPlayDisabledReason } from '@/lib/sequencer/logic';
 import { cn } from '@/lib/utils';
@@ -14,19 +15,27 @@ interface SequencerPanelProps {
 }
 
 // Alcance de este prompt: solo el primer Track DRUM del proyecto suena
-// (kick sintetizado con Tone.MembraneSynth). El resto de tracks, la edición
-// de steps por click y los efectos llegan en prompts siguientes.
+// (kick sintetizado con Tone.MembraneSynth) y solo su grid es editable. El
+// resto de tracks/tipos, los efectos y la exportación llegan en prompts
+// siguientes.
 export function SequencerPanel({ bpm }: SequencerPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   const tracks = useStudioStore((state) => state.tracks);
   const drumPattern = useStudioStore((state) => state.drumPattern);
   const isLoadingPattern = useStudioStore((state) => state.isLoadingPattern);
+  const setDrumPattern = useStudioStore((state) => state.setDrumPattern);
   const drumTrack = findDrumTrack(tracks);
 
   const { isPlaying, currentStep, canPlay, play, stop } = useSequencer({
     bpm,
     pattern: drumPattern,
+  });
+
+  const { toggleStep } = usePatternEditor({
+    trackId: drumTrack?.id ?? null,
+    pattern: drumPattern,
+    onChange: setDrumPattern,
   });
 
   const disabledReason = getPlayDisabledReason({
@@ -81,15 +90,24 @@ export function SequencerPanel({ bpm }: SequencerPanelProps) {
           {drumTrack && drumPattern ? (
             <div className="space-y-1.5">
               <span className="text-xs text-muted-foreground">{drumTrack.name}</span>
-              <div className="grid grid-cols-[repeat(16,minmax(0,1fr))] gap-1">
+              <div className="flex gap-1">
                 {drumPattern.steps.map((step, index) => (
-                  <div
+                  <button
                     key={index}
+                    type="button"
+                    data-testid={`step-${index}`}
+                    onClick={() => toggleStep(index)}
+                    aria-pressed={step.active}
+                    aria-label={`Step ${index + 1}, ${step.active ? 'activo' : 'inactivo'}`}
                     className={cn(
-                      'aspect-square rounded-sm border transition-colors',
+                      'aspect-square flex-1 rounded-sm border transition-colors',
+                      // Separación sutil cada 4 steps (los "tiempos" del compás):
+                      // se lee un patrón de un vistazo igual que en un step
+                      // sequencer real.
+                      index % 4 === 0 && index !== 0 && 'ml-1.5',
                       step.active
-                        ? 'border-primary/50 bg-primary/30'
-                        : 'border-border/60 bg-muted/30',
+                        ? 'border-primary/60 bg-primary/40 hover:bg-primary/50'
+                        : 'border-border/60 bg-muted/30 hover:bg-muted/60',
                       currentStep === index && 'ring-2 ring-emerald-400',
                     )}
                   />

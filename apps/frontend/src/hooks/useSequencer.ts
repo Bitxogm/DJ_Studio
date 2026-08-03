@@ -75,11 +75,19 @@ export function useSequencer({ bpm, pattern }: UseSequencerOptions): UseSequence
     setCurrentStep(-1);
   }, []);
 
-  // Cambiar de pattern (otro proyecto, u otro Track DRUM) para la
+  // Cambiar a un pattern DISTINTO (otro proyecto, u otro Track DRUM) para la
   // reproducción en curso y libera la Sequence vieja -- nunca se deja sonando
   // un pattern que ya no es el seleccionado. Esto cubre tanto "cambiar de
   // proyecto" como "desmontar el componente" (ambos disparan/reejecutan este
   // efecto o su cleanup).
+  //
+  // Depende de `pattern?.id`, NO de `pattern` completo a propósito: editar un
+  // step (toggle de active) crea un objeto Pattern nuevo con el MISMO id, y
+  // eso NO debe parar la reproducción -- el callback de la Sequence ya lee
+  // los steps más recientes vía `patternRef` en cada iteración (ver `play`),
+  // así que un edit en caliente se refleja solo en el siguiente step sin
+  // tocar el Transport ni la Sequence. Si esto dependiera de `pattern` a
+  // secas, cada click en el grid cortaría el sonido.
   useEffect(() => {
     stop();
     return () => {
@@ -88,7 +96,7 @@ export function useSequencer({ bpm, pattern }: UseSequencerOptions): UseSequence
       sequenceRef.current?.dispose();
       sequenceRef.current = null;
     };
-  }, [pattern, stop]);
+  }, [pattern?.id, stop]);
 
   const play = useCallback(async () => {
     const currentPattern = patternRef.current;

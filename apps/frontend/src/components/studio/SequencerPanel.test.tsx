@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { Pattern, Track } from '@beatforge/shared';
+import type { Pattern, PatternStep, Track } from '@beatforge/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useStudioStore } from '@/store/studio';
@@ -20,6 +20,24 @@ vi.mock('@/hooks/useSequencer', () => ({
     play: playMock,
     stop: stopMock,
   }),
+}));
+
+const updatePatternRequestMock =
+  vi.fn<
+    (trackId: string, patternId: string, input: { steps: PatternStep[] }) => Promise<Pattern>
+  >();
+vi.mock('@/lib/api/patterns', () => ({
+  updatePatternRequest: (...args: [string, string, { steps: PatternStep[] }]) =>
+    updatePatternRequestMock(...args),
+}));
+
+const toastError = vi.fn();
+vi.mock('sonner', () => ({
+  toast: {
+    error: (...args: unknown[]): void => {
+      toastError(...args);
+    },
+  },
 }));
 
 const drumTrack: Track = {
@@ -67,6 +85,8 @@ describe('SequencerPanel', () => {
   beforeEach(() => {
     playMock.mockClear();
     stopMock.mockClear();
+    updatePatternRequestMock.mockReset();
+    toastError.mockClear();
     sequencerState = { isPlaying: false, currentStep: -1, canPlay: false };
     resetStore();
   });
@@ -112,5 +132,72 @@ describe('SequencerPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Detener secuenciador' }));
     expect(stopMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('invierte el estado visual del step al instante, sin esperar la red', async () => {
+    sequencerState = { isPlaying: false, currentStep: -1, canPlay: true };
+    useStudioStore.setState({ tracks: [drumTrack], drumPattern });
+    updatePatternRequestMock.mockReturnValue(new Promise(() => {})); // nunca resuelve
+    const user = userEvent.setup();
+    render(<SequencerPanel bpm={124} />);
+
+    const step0 = screen.getByTestId('step-0');
+    expect(step0).toHaveAttribute('aria-pressed', 'true'); // steps[0] viene activo
+
+    await user.click(step0);
+
+    expect(step0).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('llama al PATCH con el array de steps correcto (solo el step clickeado invertido)', async () => {
+    sequencerState = { isPlaying: false, currentStep: -1, canPlay: true };
+    useStudioStore.setState({ tracks: [drumTrack], drumPattern });
+    updatePatternRequestMock.mockResolvedValueOnce(drumPattern);
+    const user = userEvent.setup();
+    render(<SequencerPanel bpm={124} />);
+
+    // steps[1] viene inactivo (solo 0, 4, 8, 12 activos de fábrica)
+    await user.click(screen.getByTestId('step-1'));
+
+    await waitFor(() => {
+      expect(updatePatternRequestMock).toHaveBeenCalledTimes(1);
+    });
+
+    const [trackId, patternId, input] = updatePatternRequestMock.mock.calls[0];
+    expect(trackId).toBe(drumTrack.id);
+    expect(patternId).toBe(drumPattern.id);
+    expect(input.steps).toHaveLength(16);
+    input.steps.forEach((step, index) => {
+      if (index === 1) {
+        expect(step.active).toBe(true);
+      } else {
+        expect(step.active).toBe(drumPattern.steps[index].active);
+      }
+    });
+  });
+
+  it('revierte el step y muestra un toast de error si el PATCH falla', async () => {
+    sequencerState = { isPlaying: false, currentStep: -1, canPlay: true };
+    useStudioStore.setState({ tracks: [drumTrack], drumPattern });
+    const { ApiRequestError } = await import('@/lib/api/httpError');
+    updatePatternRequestMock.mockRejectedValueOnce(new ApiRequestError('No encontrado', 404));
+    const user = userEvent.setup();
+    render(<SequencerPanel bpm={124} />);
+
+    const step0 = screen.getByTestId('step-0');
+    expect(step0).toHaveAttribute('aria-pressed', 'true');
+
+    // No se comprueba el estado optimista intermedio aquí: con un rechazo
+    // inmediato (sin demora artificial), el ciclo aplicar->fallar->revertir
+    // puede completarse dentro del propio `await user.click`, antes de que
+    // el test pueda observarlo -- esa instantaneidad ya la cubre el test
+    // anterior (con una petición que nunca resuelve). Este test verifica el
+    // estado final: revertido, con su toast de error.
+    await user.click(step0);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('step-0')).toHaveAttribute('aria-pressed', 'true');
+    });
+    expect(toastError).toHaveBeenCalledWith('No encontrado');
   });
 });

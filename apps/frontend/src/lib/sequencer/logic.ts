@@ -21,6 +21,13 @@ export function resolveStepTrigger(step: PatternStep): StepTrigger | null {
   return { note: step.note ?? 'C1', velocity: step.velocity };
 }
 
+// Invierte el step del índice dado, sin mutar el array original -- tanto la
+// UI (actualización optimista) como el PATCH necesitan el array "de después"
+// sin tocar el "de antes", que se guarda aparte para poder revertir.
+export function toggleStepActive(steps: PatternStep[], index: number): PatternStep[] {
+  return steps.map((step, i) => (i === index ? { ...step, active: !step.active } : step));
+}
+
 // Alcance de este prompt: un único track suena, el primero de tipo DRUM.
 export function findDrumTrack(tracks: Track[]): Track | null {
   return tracks.find((track) => track.type === 'DRUM') ?? null;
