@@ -7,12 +7,12 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Music2 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import type { Pattern } from '@beatforge/shared';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/hooks/useAuth';
 import { ApiRequestError } from '@/lib/api/httpError';
 import { listPatternsRequest } from '@/lib/api/patterns';
 import { listTracksRequest } from '@/lib/api/tracks';
-import { findDrumTrack } from '@/lib/sequencer/logic';
 import { useStudioStore } from '@/store/studio';
 import { NewProjectDialog } from './NewProjectDialog';
 import { ProjectHeader } from './ProjectHeader';
@@ -36,8 +36,8 @@ export function StudioShell({ initialProjects }: StudioShellProps) {
   const setCurrentUserId = useStudioStore((state) => state.setCurrentUserId);
   const setTracks = useStudioStore((state) => state.setTracks);
   const setLoadingTracks = useStudioStore((state) => state.setLoadingTracks);
-  const setDrumPattern = useStudioStore((state) => state.setDrumPattern);
-  const setLoadingPattern = useStudioStore((state) => state.setLoadingPattern);
+  const setTrackPatterns = useStudioStore((state) => state.setTrackPatterns);
+  const setLoadingPatterns = useStudioStore((state) => state.setLoadingPatterns);
 
   // Solo en el montaje inicial: las mutaciones posteriores (crear proyecto)
   // ya actualizan el store directamente, no hace falta re-sincronizar aquí.
@@ -83,22 +83,37 @@ export function StudioShell({ initialProjects }: StudioShellProps) {
     };
   }, [selectedProjectId, setTracks, setLoadingTracks]);
 
-  // Alcance de este prompt: solo suena el primer Track DRUM del proyecto, así
-  // que solo hace falta cargar su Pattern. Depende del id del track DRUM (no
-  // del array `tracks` completo) para no volver a pedir el pattern cada vez
-  // que se mutea/soleaa/ajusta volumen en cualquier track del mixer.
-  const drumTrackId = findDrumTrack(tracks)?.id ?? null;
+  // El motor de audio (useSequencer) reproduce TODOS los tracks que tengan
+  // un Pattern, no solo el de batería -- así que se cargan los de todos.
+  // Depende de la lista de ids (no del array `tracks` completo) para no
+  // volver a pedir los patterns cada vez que se mutea/soleaa/ajusta volumen
+  // en cualquier track del mixer, que solo cambia sus propios campos.
+  const trackIds = tracks.map((track) => track.id).join(',');
 
   useEffect(() => {
-    if (!drumTrackId) {
-      setDrumPattern(null);
+    if (!trackIds) {
+      setTrackPatterns({});
       return;
     }
     let cancelled = false;
-    setLoadingPattern(true);
-    listPatternsRequest(drumTrackId)
-      .then((patterns) => {
-        if (!cancelled) setDrumPattern(patterns[0] ?? null);
+    setLoadingPatterns(true);
+    Promise.all(
+      trackIds
+        .split(',')
+        .map((trackId) =>
+          listPatternsRequest(trackId).then((patterns): [string, Pattern | undefined] => [
+            trackId,
+            patterns[0],
+          ]),
+        ),
+    )
+      .then((results) => {
+        if (cancelled) return;
+        const patterns: Record<string, Pattern> = {};
+        for (const [trackId, pattern] of results) {
+          if (pattern) patterns[trackId] = pattern;
+        }
+        setTrackPatterns(patterns);
       })
       .catch((error: unknown) => {
         toast.error(
@@ -106,12 +121,12 @@ export function StudioShell({ initialProjects }: StudioShellProps) {
         );
       })
       .finally(() => {
-        if (!cancelled) setLoadingPattern(false);
+        if (!cancelled) setLoadingPatterns(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [drumTrackId, setDrumPattern, setLoadingPattern]);
+  }, [trackIds, setTrackPatterns, setLoadingPatterns]);
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
 

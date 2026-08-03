@@ -12,11 +12,13 @@ interface StudioState {
   currentUserId: string | null;
   tracks: Track[];
   isLoadingTracks: boolean;
-  // Pattern del primer Track DRUM del proyecto seleccionado (reproducción de
-  // audio, ver src/hooks/useSequencer.ts). Alcance deliberadamente acotado a
-  // un único track/pattern -- no hay mezcla de varios tracks todavía.
-  drumPattern: Pattern | null;
-  isLoadingPattern: boolean;
+  // Pattern de CADA Track del proyecto que tenga uno asociado, indexado por
+  // trackId (los tracks sin Pattern simplemente no tienen entrada). Usado
+  // por el motor de audio (useSequencer, que reproduce todos los que tenga)
+  // y por el grid editable del secuenciador (centrado en el Track DRUM, ver
+  // SequencerPanel).
+  trackPatterns: Record<string, Pattern>;
+  isLoadingPatterns: boolean;
   setProjects: (projects: Project[]) => void;
   addProject: (project: Project) => void;
   updateProjectLocal: (project: Project) => void;
@@ -34,8 +36,9 @@ interface StudioState {
   addTrack: (track: Track) => void;
   updateTrackLocal: (track: Track) => void;
   setLoadingTracks: (loading: boolean) => void;
-  setDrumPattern: (pattern: Pattern | null) => void;
-  setLoadingPattern: (loading: boolean) => void;
+  setTrackPatterns: (patterns: Record<string, Pattern>) => void;
+  setTrackPattern: (trackId: string, pattern: Pattern) => void;
+  setLoadingPatterns: (loading: boolean) => void;
 }
 
 // Preferencia de UI pura (qué proyecto tenía abierto CADA usuario), no dato
@@ -90,8 +93,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   currentUserId: null,
   tracks: [],
   isLoadingTracks: false,
-  drumPattern: null,
-  isLoadingPattern: false,
+  trackPatterns: {},
+  isLoadingPatterns: false,
 
   // Deliberadamente NO toca localStorage ni intenta autoseleccionar aquí: en
   // el montaje de StudioShell, `initialProjects` (síncrono, viene del
@@ -104,7 +107,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   // usuario, mismo navegador, sin recarga completa), queda borrada antes de
   // que se derive la selección correcta del usuario nuevo.
   setProjects: (projects) =>
-    set({ projects, selectedProjectId: null, tracks: [], drumPattern: null }),
+    set({ projects, selectedProjectId: null, tracks: [], trackPatterns: {} }),
 
   addProject: (project) => set((state) => ({ projects: [project, ...state.projects] })),
 
@@ -121,13 +124,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
     set((state) => ({
       projects: state.projects.filter((p) => p.id !== projectId),
-      ...(wasSelected ? { selectedProjectId: null, tracks: [], drumPattern: null } : {}),
+      ...(wasSelected ? { selectedProjectId: null, tracks: [], trackPatterns: {} } : {}),
     }));
   },
 
   selectProject: (projectId) => {
     writeLastProjectId(get().currentUserId, projectId);
-    set({ selectedProjectId: projectId, tracks: [], drumPattern: null });
+    set({ selectedProjectId: projectId, tracks: [], trackPatterns: {} });
   },
 
   setCurrentUserId: (userId) => {
@@ -147,7 +150,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       writeLastProjectId(userId, null);
     }
 
-    set({ currentUserId: userId, selectedProjectId: validId, tracks: [], drumPattern: null });
+    set({ currentUserId: userId, selectedProjectId: validId, tracks: [], trackPatterns: {} });
   },
 
   setTracks: (tracks) => set({ tracks }),
@@ -161,7 +164,10 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   setLoadingTracks: (isLoadingTracks) => set({ isLoadingTracks }),
 
-  setDrumPattern: (drumPattern) => set({ drumPattern }),
+  setTrackPatterns: (trackPatterns) => set({ trackPatterns }),
 
-  setLoadingPattern: (isLoadingPattern) => set({ isLoadingPattern }),
+  setTrackPattern: (trackId, pattern) =>
+    set((state) => ({ trackPatterns: { ...state.trackPatterns, [trackId]: pattern } })),
+
+  setLoadingPatterns: (isLoadingPatterns) => set({ isLoadingPatterns }),
 }));

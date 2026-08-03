@@ -14,34 +14,43 @@ interface SequencerPanelProps {
   bpm: number;
 }
 
-// Alcance de este prompt: solo el primer Track DRUM del proyecto suena
-// (kick sintetizado con Tone.MembraneSynth) y solo su grid es editable. El
-// resto de tracks/tipos, los efectos y la exportación llegan en prompts
-// siguientes.
+// El motor de audio (useSequencer) reproduce TODOS los Tracks del proyecto
+// que tengan un Pattern asociado (hoy, en la práctica, Kick y Bajo). El grid
+// interactivo sigue centrado en el Track DRUM únicamente -- editar los steps
+// de otros tipos de Track es trabajo de un prompt futuro.
 export function SequencerPanel({ bpm }: SequencerPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   const tracks = useStudioStore((state) => state.tracks);
-  const drumPattern = useStudioStore((state) => state.drumPattern);
-  const isLoadingPattern = useStudioStore((state) => state.isLoadingPattern);
-  const setDrumPattern = useStudioStore((state) => state.setDrumPattern);
+  const trackPatterns = useStudioStore((state) => state.trackPatterns);
+  const isLoadingPatterns = useStudioStore((state) => state.isLoadingPatterns);
+  const setTrackPattern = useStudioStore((state) => state.setTrackPattern);
   const drumTrack = findDrumTrack(tracks);
+  const drumPattern = drumTrack ? (trackPatterns[drumTrack.id] ?? null) : null;
 
-  const { isPlaying, currentStep, canPlay, play, stop } = useSequencer({
+  const { isPlaying, currentStep, play, stop } = useSequencer({
     bpm,
-    pattern: drumPattern,
+    tracks,
+    patternsByTrackId: trackPatterns,
   });
 
   const { toggleStep } = usePatternEditor({
     trackId: drumTrack?.id ?? null,
     pattern: drumPattern,
-    onChange: setDrumPattern,
+    onChange: (pattern) => {
+      if (drumTrack) setTrackPattern(drumTrack.id, pattern);
+    },
   });
 
+  // El botón Play sigue centrado en el Track DRUM (es lo único que el grid
+  // muestra/controla), no en el `canPlay` genérico de useSequencer -- si se
+  // usara ese valor aquí, un proyecto con Bajo pero sin batería habilitaría
+  // el botón mientras el mensaje/grid seguirían hablando de "añade un Track
+  // de batería", una contradicción visible para el usuario.
   const disabledReason = getPlayDisabledReason({
     drumTrack,
     hasPattern: drumPattern !== null,
-    isLoadingPattern,
+    isLoadingPattern: isLoadingPatterns,
   });
 
   return (
@@ -56,7 +65,7 @@ export function SequencerPanel({ bpm }: SequencerPanelProps) {
           <button
             type="button"
             onClick={() => (isPlaying ? stop() : void play())}
-            disabled={!canPlay}
+            disabled={!!disabledReason}
             title={disabledReason ?? undefined}
             aria-label={isPlaying ? 'Detener secuenciador' : 'Reproducir secuenciador'}
             className={cn(
@@ -116,7 +125,7 @@ export function SequencerPanel({ bpm }: SequencerPanelProps) {
             </div>
           ) : (
             <p className="text-center text-sm text-muted-foreground">
-              {isLoadingPattern
+              {isLoadingPatterns
                 ? 'Cargando patrón...'
                 : (disabledReason ?? 'Sin patrón que mostrar.')}
             </p>

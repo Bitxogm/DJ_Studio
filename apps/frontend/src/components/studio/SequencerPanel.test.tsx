@@ -8,15 +8,15 @@ import { SequencerPanel } from './SequencerPanel';
 
 const playMock = vi.fn();
 const stopMock = vi.fn();
-let sequencerState: { isPlaying: boolean; currentStep: number; canPlay: boolean } = {
+let sequencerState: { isPlaying: boolean; currentStep: number } = {
   isPlaying: false,
   currentStep: -1,
-  canPlay: false,
 };
 
 vi.mock('@/hooks/useSequencer', () => ({
   useSequencer: () => ({
     ...sequencerState,
+    canPlay: true,
     play: playMock,
     stop: stopMock,
   }),
@@ -76,8 +76,8 @@ function resetStore() {
     selectedProjectId: null,
     tracks: [],
     isLoadingTracks: false,
-    drumPattern: null,
-    isLoadingPattern: false,
+    trackPatterns: {},
+    isLoadingPatterns: false,
   });
 }
 
@@ -87,12 +87,12 @@ describe('SequencerPanel', () => {
     stopMock.mockClear();
     updatePatternRequestMock.mockReset();
     toastError.mockClear();
-    sequencerState = { isPlaying: false, currentStep: -1, canPlay: false };
+    sequencerState = { isPlaying: false, currentStep: -1 };
     resetStore();
   });
 
   it('deshabilita el botón Play si no hay ningún Track DRUM', () => {
-    useStudioStore.setState({ tracks: [], drumPattern: null });
+    useStudioStore.setState({ tracks: [], trackPatterns: {} });
     render(<SequencerPanel bpm={120} />);
 
     const playButton = screen.getByRole('button', { name: 'Reproducir secuenciador' });
@@ -101,7 +101,7 @@ describe('SequencerPanel', () => {
   });
 
   it('deshabilita el botón Play si hay Track DRUM pero sin pattern', () => {
-    useStudioStore.setState({ tracks: [drumTrack], drumPattern: null, isLoadingPattern: false });
+    useStudioStore.setState({ tracks: [drumTrack], trackPatterns: {}, isLoadingPatterns: false });
     render(<SequencerPanel bpm={120} />);
 
     expect(screen.getByRole('button', { name: 'Reproducir secuenciador' })).toBeDisabled();
@@ -111,8 +111,11 @@ describe('SequencerPanel', () => {
   });
 
   it('habilita el botón Play y muestra el grid cuando hay Track DRUM con pattern', async () => {
-    sequencerState = { isPlaying: false, currentStep: -1, canPlay: true };
-    useStudioStore.setState({ tracks: [drumTrack], drumPattern });
+    sequencerState = { isPlaying: false, currentStep: -1 };
+    useStudioStore.setState({
+      tracks: [drumTrack],
+      trackPatterns: { [drumTrack.id]: drumPattern },
+    });
     const user = userEvent.setup();
     render(<SequencerPanel bpm={124} />);
 
@@ -125,8 +128,11 @@ describe('SequencerPanel', () => {
   });
 
   it('al pulsar mientras suena, llama a stop()', async () => {
-    sequencerState = { isPlaying: true, currentStep: 0, canPlay: true };
-    useStudioStore.setState({ tracks: [drumTrack], drumPattern });
+    sequencerState = { isPlaying: true, currentStep: 0 };
+    useStudioStore.setState({
+      tracks: [drumTrack],
+      trackPatterns: { [drumTrack.id]: drumPattern },
+    });
     const user = userEvent.setup();
     render(<SequencerPanel bpm={124} />);
 
@@ -135,8 +141,11 @@ describe('SequencerPanel', () => {
   });
 
   it('invierte el estado visual del step al instante, sin esperar la red', async () => {
-    sequencerState = { isPlaying: false, currentStep: -1, canPlay: true };
-    useStudioStore.setState({ tracks: [drumTrack], drumPattern });
+    sequencerState = { isPlaying: false, currentStep: -1 };
+    useStudioStore.setState({
+      tracks: [drumTrack],
+      trackPatterns: { [drumTrack.id]: drumPattern },
+    });
     updatePatternRequestMock.mockReturnValue(new Promise(() => {})); // nunca resuelve
     const user = userEvent.setup();
     render(<SequencerPanel bpm={124} />);
@@ -150,8 +159,11 @@ describe('SequencerPanel', () => {
   });
 
   it('llama al PATCH con el array de steps correcto (solo el step clickeado invertido)', async () => {
-    sequencerState = { isPlaying: false, currentStep: -1, canPlay: true };
-    useStudioStore.setState({ tracks: [drumTrack], drumPattern });
+    sequencerState = { isPlaying: false, currentStep: -1 };
+    useStudioStore.setState({
+      tracks: [drumTrack],
+      trackPatterns: { [drumTrack.id]: drumPattern },
+    });
     updatePatternRequestMock.mockResolvedValueOnce(drumPattern);
     const user = userEvent.setup();
     render(<SequencerPanel bpm={124} />);
@@ -177,8 +189,11 @@ describe('SequencerPanel', () => {
   });
 
   it('revierte el step y muestra un toast de error si el PATCH falla', async () => {
-    sequencerState = { isPlaying: false, currentStep: -1, canPlay: true };
-    useStudioStore.setState({ tracks: [drumTrack], drumPattern });
+    sequencerState = { isPlaying: false, currentStep: -1 };
+    useStudioStore.setState({
+      tracks: [drumTrack],
+      trackPatterns: { [drumTrack.id]: drumPattern },
+    });
     const { ApiRequestError } = await import('@/lib/api/httpError');
     updatePatternRequestMock.mockRejectedValueOnce(new ApiRequestError('No encontrado', 404));
     const user = userEvent.setup();

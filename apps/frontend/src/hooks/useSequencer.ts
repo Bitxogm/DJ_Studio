@@ -2,135 +2,230 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Tone from 'tone';
-import type { Pattern } from '@beatforge/shared';
+import type { Pattern, Track, TrackType } from '@beatforge/shared';
 
-import { resolveStepTrigger } from '@/lib/sequencer/logic';
+import {
+  applyMixerStateToVoices,
+  defaultNoteForTrackType,
+  resolveStepTrigger,
+} from '@/lib/sequencer/logic';
 
 interface UseSequencerOptions {
   /** BPM real del Project seleccionado -- se mantiene sincronizado con Tone.Transport. */
   bpm: number;
-  /** Pattern del Track DRUM a reproducir. `null` = no hay nada reproducible todavía. */
-  pattern: Pattern | null;
+  /** Todos los Tracks del proyecto (tipo, mute, solo, volumen del mixer). */
+  tracks: Track[];
+  /** Pattern de cada Track que tenga uno asociado, indexado por trackId. */
+  patternsByTrackId: Record<string, Pattern>;
 }
 
 interface UseSequencerResult {
   isPlaying: boolean;
   /** Índice (0-15) del step que suena ahora mismo, o -1 si está parado. */
   currentStep: number;
+  /** Hay al menos un Track con Pattern reproducible. Ver SequencerPanel para
+   * el gate real del botón Play, que sigue centrado en el Track DRUM. */
   canPlay: boolean;
   play: () => Promise<void>;
   stop: () => void;
+}
+
+type TrackSynth = Tone.MembraneSynth | Tone.MonoSynth;
+
+interface TrackVoice {
+  synth: TrackSynth;
+  sequence: Tone.Sequence<number>;
+}
+
+// Un synth por tipo de Track, no por nombre ni por posición -- así cualquier
+// Track nuevo del mismo tipo suena igual sin tocar este código. Tipos sin
+// synth soportado hoy (SYNTH, SAMPLE) devuelven null: ver alcance en
+// CLAUDE.md > Audio.
+function createSynthForTrackType(type: TrackType): TrackSynth | null {
+  switch (type) {
+    case 'DRUM':
+      return new Tone.MembraneSynth().toDestination();
+    case 'BASS': {
+      const synth = new Tone.MonoSynth({
+        oscillator: { type: 'sawtooth' },
+        envelope: { attack: 0.01, decay: 0.25, sustain: 0.3, release: 0.3 },
+        filterEnvelope: {
+          attack: 0.01,
+          decay: 0.2,
+          sustain: 0.2,
+          release: 0.3,
+          baseFrequency: 100,
+          octaves: 2.5,
+        },
+      }).toDestination();
+      // Portamento corto: da carácter de línea de bajo tocada (glide entre
+      // notas) en vez de sonar a notas staccato desconectadas entre sí.
+      synth.portamento = 0.02;
+      return synth;
+    }
+    default:
+      return null;
+  }
 }
 
 // Toda la orquestación de Tone.js vive aquí -- ver CLAUDE.md > Audio. Los
 // componentes visuales (SequencerPanel) solo leen isPlaying/currentStep y
 // llaman a play()/stop(), nunca tocan Tone.js directamente.
 //
-// Por qué Tone.Sequence y no Tone.Loop: Sequence toma directamente un array
-// de valores (los 16 steps del Pattern) más una subdivisión ("16n") y llama
-// al callback una vez por elemento, pasando el propio valor -- encaja
-// exactamente con "16 steps guardados en Pattern.steps" sin tener que llevar
-// un contador de step manual como haría falta con Loop (que solo dispara un
-// callback periódico, sin noción de "qué array recorre").
-export function useSequencer({ bpm, pattern }: UseSequencerOptions): UseSequencerResult {
+// Por qué Tone.Sequence y no Tone.Loop: cada Pattern.steps ya es un array
+// fijo de 16 elementos guardado en la BD. Sequence toma ese array
+// directamente y llama al callback una vez por elemento a la subdivisión
+// dada ("16n"), pasando el propio valor -- encaja exactamente con la forma
+// de los datos, sin llevar un contador de step a mano como haría falta con
+// Loop.
+//
+// Por qué UN solo hook y no uno por Track: React no permite llamar hooks
+// dentro de un bucle/condicional (el número de Tracks reproducibles puede
+// cambiar entre renders -- se añade un Track, tarda en cargar su Pattern,
+// etc.), así que un hipotético "useTrackVoice" por Track no sería seguro de
+// invocar dinámicamente. En su lugar, este hook mantiene un registro
+// imperativo (voicesRef, un Map normal, no hooks) de sintetizador+Sequence
+// por trackId, construido/destruido con un simple bucle -- misma idea que
+// useSequencer ya usaba para un único Track, generalizada.
+export function useSequencer({
+  bpm,
+  tracks,
+  patternsByTrackId,
+}: UseSequencerOptions): UseSequencerResult {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState(-1);
 
-  const synthRef = useRef<Tone.MembraneSynth | null>(null);
-  const sequenceRef = useRef<Tone.Sequence<number> | null>(null);
-  // La Sequence captura `pattern` en el closure de su callback en el momento
-  // en que se construye; este ref permite que ese callback siempre lea los
-  // steps más recientes sin tener que reconstruir la Sequence si el resto de
-  // la lógica cambiase (aunque hoy, en la práctica, se reconstruye igual en
-  // cada cambio de pattern -- ver el efecto de abajo).
-  const patternRef = useRef(pattern);
-  patternRef.current = pattern;
-
-  // Un único MembraneSynth para todo el ciclo de vida del hook: crearlo de
-  // nuevo en cada trigger sería carísimo y sonaría con clicks/artefactos.
-  useEffect(() => {
-    const synth = new Tone.MembraneSynth().toDestination();
-    synthRef.current = synth;
-    return () => {
-      synth.dispose();
-      synthRef.current = null;
-    };
-  }, []);
+  const voicesRef = useRef<Map<string, TrackVoice>>(new Map());
+  // tracksRef/patternsRef permiten que play() y el callback de cada Sequence
+  // lean siempre el estado más reciente sin que play() tenga que
+  // reconstruirse (deps vacías) cada vez que cambia cualquier campo del
+  // mixer -- igual que patternRef en la versión de un solo Track.
+  const tracksRef = useRef(tracks);
+  tracksRef.current = tracks;
+  const patternsRef = useRef(patternsByTrackId);
+  patternsRef.current = patternsByTrackId;
 
   // El bpm del Project siempre manda, incluso si cambia mientras está sonando.
   useEffect(() => {
     Tone.Transport.bpm.value = bpm;
   }, [bpm]);
 
+  const teardownAllVoices = useCallback(() => {
+    for (const voice of voicesRef.current.values()) {
+      voice.sequence.dispose();
+      voice.synth.dispose();
+    }
+    voicesRef.current.clear();
+  }, []);
+
   // Parada completa: para el Transport, cancela lo programado y libera
-  // (dispose) la Sequence -- Tone.js no permite volver a `.start()` una
-  // Sequence/Part ya iniciada sin cancelar antes, así que la forma segura de
-  // poder reproducir de nuevo es no dejar ninguna viva a medias.
+  // (dispose) cada Sequence/synth -- Tone.js no permite volver a `.start()`
+  // una Sequence/Part ya iniciada sin cancelar antes, así que la forma
+  // segura de poder reproducir de nuevo es no dejar ninguna viva a medias.
   const stop = useCallback(() => {
     Tone.Transport.stop();
     Tone.Transport.cancel(0);
-    sequenceRef.current?.dispose();
-    sequenceRef.current = null;
+    teardownAllVoices();
     setIsPlaying(false);
     setCurrentStep(-1);
-  }, []);
+  }, [teardownAllVoices]);
 
-  // Cambiar a un pattern DISTINTO (otro proyecto, u otro Track DRUM) para la
-  // reproducción en curso y libera la Sequence vieja -- nunca se deja sonando
-  // un pattern que ya no es el seleccionado. Esto cubre tanto "cambiar de
-  // proyecto" como "desmontar el componente" (ambos disparan/reejecutan este
-  // efecto o su cleanup).
-  //
-  // Depende de `pattern?.id`, NO de `pattern` completo a propósito: editar un
-  // step (toggle de active) crea un objeto Pattern nuevo con el MISMO id, y
-  // eso NO debe parar la reproducción -- el callback de la Sequence ya lee
-  // los steps más recientes vía `patternRef` en cada iteración (ver `play`),
+  // Firma estable de "qué Tracks con qué Pattern EXACTO deberían sonar":
+  // cambia solo si se añaden/quitan Tracks reproducibles, o si a un Track le
+  // cambian de Pattern por completo (otro proyecto/track). Editar los steps
+  // de un Pattern ya existente NO cambia esta firma (mismo pattern.id), así
+  // que no dispara una reconstrucción -- el callback de cada Sequence ya lee
+  // los steps más recientes vía patternsRef en cada iteración (ver play()),
   // así que un edit en caliente se refleja solo en el siguiente step sin
-  // tocar el Transport ni la Sequence. Si esto dependiera de `pattern` a
-  // secas, cada click en el grid cortaría el sonido.
+  // tocar el Transport ni ninguna Sequence.
+  const voiceSignature = tracks
+    .map((track) => {
+      const pattern = patternsByTrackId[track.id];
+      return pattern ? `${track.id}:${pattern.id}` : null;
+    })
+    .filter((entry): entry is string => entry !== null)
+    .sort()
+    .join('|');
+
   useEffect(() => {
     stop();
     return () => {
       Tone.Transport.stop();
       Tone.Transport.cancel(0);
-      sequenceRef.current?.dispose();
-      sequenceRef.current = null;
+      teardownAllVoices();
     };
-  }, [pattern?.id, stop]);
+  }, [voiceSignature, stop, teardownAllVoices]);
+
+  // Mute/Solo/Volumen se aplican directamente al nodo de audio de cada synth
+  // (su propio .volume, en dB) en cuanto cambian, nunca dentro del callback
+  // de la Sequence -- así el cambio es inmediato (no cuantizado al
+  // siguiente step) y nunca toca el Transport ni recrea nada, pudiendo
+  // cambiarse en caliente con el secuenciador sonando. La conversión
+  // volumen lineal -> dB y la decisión de audibilidad (mute/solo) viven en
+  // applyMixerStateToVoices (lib/sequencer/logic.ts) -- lógica pura,
+  // testeada sin Tone.js; aquí solo se le pasa el registro real de voces.
+  useEffect(() => {
+    applyMixerStateToVoices(tracks, voicesRef.current);
+  }, [tracks]);
 
   const play = useCallback(async () => {
-    const currentPattern = patternRef.current;
-    if (!currentPattern) {
-      return;
-    }
-
     // Los navegadores bloquean el audio hasta una interacción explícita del
-    // usuario; Tone.start() desbloquea el AudioContext. Es seguro llamarlo en
-    // cada play(), no solo la primera vez (no-op si ya está arrancado).
+    // usuario; Tone.start() desbloquea el AudioContext. Es seguro llamarlo
+    // en cada play(), no solo la primera vez (no-op si ya está arrancado).
     await Tone.start();
 
-    if (!sequenceRef.current) {
-      const stepIndices = currentPattern.steps.map((_, index) => index);
-      sequenceRef.current = new Tone.Sequence<number>(
-        (time, stepIndex) => {
-          const step = patternRef.current?.steps[stepIndex];
-          const trigger = step ? resolveStepTrigger(step) : null;
-          if (trigger) {
-            synthRef.current?.triggerAttackRelease(trigger.note, '8n', time, trigger.velocity);
-          }
-          // Tone.Draw sincroniza el callback visual con el instante de audio
-          // programado (compensa el "lookahead" del scheduler de Tone): sin
-          // esto el playhead iría desacompasado del sonido real.
-          Tone.Draw.schedule(() => {
-            setCurrentStep(stepIndex);
-          }, time);
-        },
-        stepIndices,
-        '16n',
-      );
+    if (voicesRef.current.size === 0) {
+      for (const track of tracksRef.current) {
+        const pattern = patternsRef.current[track.id];
+        if (!pattern) {
+          continue;
+        }
+        const synth = createSynthForTrackType(track.type);
+        if (!synth) {
+          continue;
+        }
+
+        const defaultNote = defaultNoteForTrackType(track.type);
+        const trackId = track.id;
+        const stepIndices = pattern.steps.map((_, index) => index);
+
+        const sequence = new Tone.Sequence<number>(
+          (time, stepIndex) => {
+            // Siempre a través de patternsRef, nunca del `pattern` capturado
+            // arriba: así un toggle de step (misma identidad de Pattern) se
+            // refleja en el siguiente step sin recrear la Sequence.
+            const currentPattern = patternsRef.current[trackId];
+            const step = currentPattern?.steps[stepIndex];
+            const trigger = step ? resolveStepTrigger(step, defaultNote) : null;
+            if (trigger) {
+              synth.triggerAttackRelease(trigger.note, '8n', time, trigger.velocity);
+            }
+            // Todas las Sequences comparten Transport/subdivisión y arrancan
+            // juntas (sequence.start(0) más abajo), así que siempre están en
+            // el mismo step -- basta con que cualquiera de ellas actualice
+            // el playhead visual. Tone.Draw sincroniza ese callback con el
+            // instante de audio programado (compensa el "lookahead" del
+            // scheduler): sin esto el playhead iría desacompasado del
+            // sonido real.
+            Tone.Draw.schedule(() => {
+              setCurrentStep(stepIndex);
+            }, time);
+          },
+          stepIndices,
+          '16n',
+        );
+
+        voicesRef.current.set(trackId, { synth, sequence });
+      }
+
+      // Volumen inicial de cada voz recién creada: mismo cálculo que el
+      // efecto de mute/solo/volumen de arriba, para no duplicar la lógica.
+      applyMixerStateToVoices(tracksRef.current, voicesRef.current);
     }
 
-    sequenceRef.current.start(0);
+    for (const voice of voicesRef.current.values()) {
+      voice.sequence.start(0);
+    }
     Tone.Transport.start();
     setIsPlaying(true);
   }, []);
@@ -138,7 +233,7 @@ export function useSequencer({ bpm, pattern }: UseSequencerOptions): UseSequence
   return {
     isPlaying,
     currentStep,
-    canPlay: pattern !== null,
+    canPlay: Object.keys(patternsByTrackId).length > 0,
     play,
     stop,
   };

@@ -28,8 +28,8 @@ function resetStore() {
     currentUserId: null,
     tracks: [],
     isLoadingTracks: false,
-    drumPattern: null,
-    isLoadingPattern: false,
+    trackPatterns: {},
+    isLoadingPatterns: false,
   });
 }
 
