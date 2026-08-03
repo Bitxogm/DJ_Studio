@@ -101,9 +101,9 @@ docker compose -f docker-compose.dev.yml up --build   # entorno dev completo
 - [x] Prompt 5: Frontend de autenticación (login/registro, BFF, shadcn/ui, tests)
 - [x] Prompt 6: Seed de desarrollo (2 usuarios demo) + quick login en /login
 - [x] Prompt 7: Esqueleto visual de /studio (sidebar, tracks, diálogos, Zustand)
-- [x] Prompt 8: Tone.js -- un Track DRUM suena de verdad, sincronizado al grid de 16 steps
-- [ ] Pendiente: mezcla de varios tracks sonando a la vez, resto de TrackType
-      (SYNTH/SAMPLE/BASS), edición de steps por click, samples reales, timeline
+- [x] Prompt 8: Tone.js -- Kick + Bajo suenan a la vez, steps editables en
+      caliente, mixer (volumen/mute/solo) conectado a audio real
+- [ ] Pendiente: resto de TrackType (SYNTH/SAMPLE), samples reales, timeline
       de arreglo, efectos, exportación de audio
 - [ ] Pendiente: Docker Compose producción completo
 
@@ -341,11 +341,22 @@ dispara la carga de tracks cuando cambia `selectedProjectId`.
 
 ## Audio: Tone.js y el secuenciador (tras el Prompt 8)
 
-**Alcance deliberadamente acotado**: solo suena el primer Track de tipo
-`DRUM` del proyecto seleccionado, con un único sonido (`Tone.MembraneSynth`,
-el sintetizador estándar para kicks — no hace falta un sample todavía).
-Nada de mezcla de varios tracks, otros `TrackType`, edición de steps por
-click, efectos ni exportación: eso son prompts futuros (ver checklist).
+**Alcance actual**: suenan TODOS los Tracks del proyecto que tengan un
+Pattern asociado (hoy, en la práctica, Kick/DRUM y Bajo/BASS), cada uno con
+su propio synth según su `TrackType` — genérico por tipo, no hardcodeado a
+"el primero" ni a nombres concretos. El grid interactivo de 16 steps sigue
+centrado únicamente en el Track DRUM (editar steps de otros tipos, resto de
+`TrackType` como SYNTH/SAMPLE, samples reales, timeline de arreglo, efectos
+y exportación son trabajo futuro — ver checklist).
+
+**Synth por tipo de Track** (`createSynthForTrackType` en `useSequencer.ts`):
+
+- `DRUM` → `Tone.MembraneSynth` (el estándar para kicks).
+- `BASS` → `Tone.MonoSynth` (oscilador sawtooth + envolvente de filtro
+  configurada para sonar a línea de bajo, con un poco de `portamento` para
+  dar sensación de glide entre notas).
+- Cualquier otro tipo (`SYNTH`, `SAMPLE`) → `null`: ese Track simplemente no
+  suena todavía, sin romper nada.
 
 **Por qué Tone.Sequence y no Tone.Loop**: `Pattern.steps` ya es un array fijo
 de 16 elementos guardado en la BD. `Tone.Sequence(callback, events,
@@ -355,22 +366,63 @@ exactamente con la forma de los datos. `Tone.Loop` solo dispara un callback
 periódico sin noción de "qué array recorre"; habría que llevar un contador
 de step a mano para conseguir lo mismo que `Sequence` ya hace.
 
+**Por qué un solo hook y no uno por Track**: React no permite llamar hooks
+dentro de un bucle o condicional, y el número de Tracks reproducibles puede
+cambiar entre renders (se añade un Track, tarda en cargar su Pattern...). Un
+hipotético `useTrackVoice` por Track no sería seguro de invocar
+dinámicamente. `useSequencer` en su lugar mantiene un registro imperativo
+(`voicesRef`, un `Map<trackId, {synth, sequence}>` normal, no hooks)
+construido/destruido con un simple bucle — misma idea que la versión de un
+solo Track, generalizada.
+
+**Mixer conectado a audio real** (volumen/mute/solo del `TrackRow`):
+
+- Se aplican directamente al `.volume` (en dB) de cada synth, NUNCA dentro
+  del callback de la Sequence — así el cambio es instantáneo (no cuantizado
+  al siguiente step) y nunca toca el Transport ni recrea nada: se puede
+  mutear/desmutear o mover el volumen con el secuenciador sonando sin cortes.
+- Conversión volumen → dB: `Track.volume` guarda un valor lineal 0-1 en BD,
+  pero Tone.js trabaja en decibelios. `linearVolumeToDb` (en `logic.ts`)
+  reimplementa la fórmula estándar de `Tone.gainToDb` a mano — a propósito,
+  para poder testear la conversión sin importar `tone` en los tests.
+- Mute gana siempre sobre Solo (`isTrackAudible`): un Track muteado nunca
+  suena, ni siquiera si él mismo tiene el Solo activado — comportamiento
+  estándar de mesa de mezclas, evita el caso ambiguo "muted + soloed".
+- Si CUALQUIER Track tiene Solo activo (`hasAnySoloedTrack`), solo los
+  Tracks soloeados suenan; si ninguno lo tiene, todos suenan según su propio
+  mute.
+
 **Dónde vive la lógica**:
 
 - `src/hooks/useSequencer.ts`: TODA la orquestación de Tone.js (Transport,
-  MembraneSynth, Sequence). Los componentes visuales (`SequencerPanel`)
-  nunca importan `tone` ni tocan el Transport directamente — solo leen
-  `isPlaying`/`currentStep`/`canPlay` y llaman a `play()`/`stop()`.
-- `src/lib/sequencer/logic.ts`: lógica PURA sin `tone` ni React
-  (`resolveStepTrigger`, `findDrumTrack`, `getPlayDisabledReason`), extraída
+  synths, Sequences). Los componentes visuales (`SequencerPanel`) nunca
+  importan `tone` ni tocan el Transport directamente — solo leen
+  `isPlaying`/`currentStep` y llaman a `play()`/`stop()`. El `canPlay` que
+  devuelve el hook ("hay al menos un Track con Pattern") es informativo, NO
+  el gate real del botón Play: `SequencerPanel` sigue usando
+  `getPlayDisabledReason` (centrado en el Track DRUM) para decidir si se
+  deshabilita, para que el mensaje mostrado nunca contradiga lo que hace el
+  botón (p. ej. un proyecto con Bajo pero sin batería no debe habilitar el
+  botón mientras el texto sigue pidiendo "añade un Track de batería").
+- `src/hooks/usePatternEditor.ts`: edición de steps (toggle + optimista +
+  PATCH), hook hermano de `useSequencer`, no su ampliación — sigue centrado
+  en un único Track (el DRUM del grid).
+- `src/lib/sequencer/logic.ts`: TODA la lógica pura, sin `tone` ni React
+  (`resolveStepTrigger`, `defaultNoteForTrackType`, `findDrumTrack`,
+  `getPlayDisabledReason`, `toggleStepActive`, `hasAnySoloedTrack`,
+  `isTrackAudible`, `linearVolumeToDb`, `applyMixerStateToVoices`), extraída
   a propósito para poder testearla sin depender de la Web Audio API (que no
-  existe en jsdom). `useSequencer` la usa dentro del callback de la
-  `Sequence`; `SequencerPanel` la usa para decidir el estado del botón Play.
+  existe en jsdom). `applyMixerStateToVoices` en particular acepta cualquier
+  objeto con forma `{ synth: { volume: { value: number } } }` (interfaz
+  `AudioVoiceLike`), no un synth real de Tone.js — así se testea con dobles
+  de test sin tocar audio de verdad, incluido el caso "mover el fader de un
+  Track sin voz registrada todavía no rompe nada".
   El propio hook `useSequencer` NO tiene test directo (no hay forma
   significativa de testear Tone.js real sin Web Audio, y mockearlo entero
   habría sido un test frágil que no prueba nada real) — la cobertura está en
-  `logic.test.ts` (la lógica que sí importa) y en `SequencerPanel.test.tsx`
-  (mockeando `useSequencer`, comprobando que el botón se deshabilita bien).
+  `logic.test.ts` (toda la lógica que sí importa) y en
+  `SequencerPanel.test.tsx` (mockeando `useSequencer`, comprobando botón y
+  edición de steps).
 
 **Reglas de Tone.js que hay que respetar si se toca este código**:
 
@@ -383,26 +435,37 @@ de step a mano para conseguir lo mismo que `Sequence` ya hace.
 - Una `Sequence`/`Part` ya iniciada con `.start()` no se puede volver a
   arrancar sin cancelarla antes (Tone.js lanza si el nuevo `time` no es
   estrictamente mayor que el anterior). `stop()` por eso hace
-  `dispose()` + `sequenceRef.current = null` siempre, y `play()` reconstruye
-  la Sequence si no existe — así nunca hay conflicto de tiempos entre
-  play/stop repetidos.
+  `dispose()` de TODAS las voces (synth + Sequence) y vacía `voicesRef`
+  siempre, y `play()` las reconstruye si el registro está vacío — así nunca
+  hay conflicto de tiempos entre play/stop repetidos.
 - `Tone.Draw.schedule(callback, time)` para todo lo visual (mover el
   playhead): los callbacks de `Transport`/`Sequence` se disparan _antes_ del
   instante de audio real (look-ahead del scheduler), así que actualizar
   React directamente ahí desincroniza el playhead del sonido. `Draw`
   reprograma el callback contra el instante de audio correcto usando
-  `requestAnimationFrame`.
-- **Limpieza obligatoria**: un efecto con cleanup dispone el `MembraneSynth`
-  al desmontar; otro efecto (con `pattern` en las deps) para el Transport y
-  dispone la `Sequence` tanto al desmontar como cada vez que cambia el
-  pattern (cambio de proyecto/track) — Tone.js no libera nada de esto solo,
+  `requestAnimationFrame`. Todas las Sequences comparten Transport y
+  subdivisión y arrancan juntas, así que basta con que cualquiera de ellas
+  actualice el playhead (todas están siempre en el mismo step).
+- Reconstruir voces vs. editar en caliente: el efecto que reconstruye TODAS
+  las voces depende de una firma `trackId:pattern.id` por Track (no de los
+  objetos completos) — cambia solo si se añade/quita un Track reproducible o
+  si a uno le cambian de Pattern por completo (otro proyecto). Editar los
+  steps de un Pattern ya existente (mismo `pattern.id`) NO dispara esa
+  reconstrucción: el callback de cada Sequence lee los steps más recientes
+  vía un ref en cada iteración, así que el edit se refleja solo en el
+  siguiente step sin tocar el Transport ni ninguna Sequence.
+- **Limpieza obligatoria para TODAS las voces, no solo la primera**: al
+  desmontar o al cambiar la firma de arriba, se hace `dispose()` de cada
+  synth y cada Sequence del registro — Tone.js no libera nada de esto solo,
   dejarlo vivo son nodos de audio reales colgados.
 
 **Cómo se verificó** (sin altavoces/oídos propios — honesto sobre el
-límite): build + typecheck limpios, `logic.test.ts` cubre la lógica de
-disparo/veto de steps, `SequencerPanel.test.tsx` cubre que el botón Play se
-deshabilita sin Track DRUM o sin Pattern, y se comprobó por curl que
-`GET /api/tracks/:trackId/patterns` devuelve los steps reales sembrados para
-el Kick de `dev1@beatforge.local`. Que el kick realmente suene (y no solo
-que el código esté bien cableado) solo se puede confirmar en un navegador
-real con audio activado — ver el README/instrucciones de prueba manual.
+límite): build + tests limpios (`logic.test.ts` cubre disparo/veto de
+steps, audibilidad mute/solo y conversión de volumen; `SequencerPanel.test.tsx`
+cubre botón y edición de steps), y por curl que
+`GET /api/tracks/:trackId/patterns` devuelve los steps/notas reales
+sembrados tanto para el Kick como para el Bajo de
+`dev1@beatforge.local`. Que Kick y Bajo realmente suenen juntos, y que
+mute/solo/volumen respondan de verdad en caliente, solo se puede confirmar
+en un navegador real con audio activado — ver el README/instrucciones de
+prueba manual.
