@@ -39,8 +39,23 @@ export function resolveStepTrigger(step: PatternStep, defaultNote: string): Step
 // Invierte el step del índice dado, sin mutar el array original -- tanto la
 // UI (actualización optimista) como el PATCH necesitan el array "de después"
 // sin tocar el "de antes", que se guarda aparte para poder revertir.
+//
+// Al ACTIVAR (false -> true) un step cuya velocity es 0, se le asigna 1: los
+// steps inactivos siempre guardan velocity 0 por convención (nunca disparan,
+// así que no importa), pero si se dejara así al activarlos por click
+// sonarían con amplitud cero -- silenciosos por definición, sin ningún error
+// en el camino, que es justo el bug que esto corrige. Si el step ya tenía
+// una velocity distinta de 0 (por ejemplo, desactivar y reactivar uno que ya
+// sonaba con su propio valor), esa velocity se respeta sin sobrescribir.
 export function toggleStepActive(steps: PatternStep[], index: number): PatternStep[] {
-  return steps.map((step, i) => (i === index ? { ...step, active: !step.active } : step));
+  return steps.map((step, i) => {
+    if (i !== index) {
+      return step;
+    }
+    const active = !step.active;
+    const velocity = active && step.velocity === 0 ? 1 : step.velocity;
+    return { ...step, active, velocity };
+  });
 }
 
 // El grid interactivo del secuenciador sigue centrado en un único Track (el

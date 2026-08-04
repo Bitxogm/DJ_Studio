@@ -112,6 +112,27 @@ describe('toggleStepActive', () => {
 
     expect(result[0]).toEqual({ active: true, note: 'A1', velocity: 0.7 });
   });
+
+  it('activar un step con velocity 0 le asigna velocity 1 (si no, sonaría silencioso)', () => {
+    const steps = [step({ active: false, note: null, velocity: 0 })];
+    const result = toggleStepActive(steps, 0);
+
+    expect(result[0]).toEqual({ active: true, note: null, velocity: 1 });
+  });
+
+  it('reactivar un step que ya tenía una velocity distinta de 0 no la sobrescribe', () => {
+    const steps = [step({ active: false, note: 'G1', velocity: 0.65 })];
+    const result = toggleStepActive(steps, 0);
+
+    expect(result[0]).toEqual({ active: true, note: 'G1', velocity: 0.65 });
+  });
+
+  it('desactivar un step (true -> false) nunca toca su velocity, aunque sea 0', () => {
+    const steps = [step({ active: true, note: 'C2', velocity: 0 })];
+    const result = toggleStepActive(steps, 0);
+
+    expect(result[0]).toEqual({ active: false, note: 'C2', velocity: 0 });
+  });
 });
 
 describe('getPlayDisabledReason', () => {
