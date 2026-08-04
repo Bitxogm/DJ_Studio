@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { Track, TrackType } from '@beatforge/shared';
+import type { Track } from '@beatforge/shared';
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
@@ -9,15 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { ApiRequestError } from '@/lib/api/httpError';
 import { updateTrackRequest } from '@/lib/api/tracks';
+import { TRACK_TYPE_COLORS } from '@/lib/trackTypeColors';
 import { cn } from '@/lib/utils';
 import { useStudioStore } from '@/store/studio';
-
-const TRACK_TYPE_STYLES: Record<TrackType, string> = {
-  DRUM: 'border-amber-500/30 bg-amber-500/15 text-amber-400',
-  SYNTH: 'border-violet-500/30 bg-violet-500/15 text-violet-400',
-  SAMPLE: 'border-emerald-500/30 bg-emerald-500/15 text-emerald-400',
-  BASS: 'border-rose-500/30 bg-rose-500/15 text-rose-400',
-};
 
 interface TrackRowProps {
   track: Track;
@@ -54,7 +48,7 @@ export function TrackRow({ track, projectId }: TrackRowProps) {
     <div className="flex items-center gap-4 rounded-lg border border-border bg-card/50 px-4 py-3">
       <div className="flex w-40 shrink-0 flex-col gap-1.5">
         <span className="truncate text-sm font-medium text-foreground">{track.name}</span>
-        <Badge variant="outline" className={cn('w-fit', TRACK_TYPE_STYLES[track.type])}>
+        <Badge variant="outline" className={cn('w-fit', TRACK_TYPE_COLORS[track.type].badge)}>
           {track.type}
         </Badge>
       </div>

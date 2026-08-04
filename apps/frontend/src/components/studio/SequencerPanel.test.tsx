@@ -55,6 +55,21 @@ const drumTrack: Track = {
   updatedAt: '',
 };
 
+const bassTrack: Track = {
+  id: 't2',
+  projectId: 'p1',
+  name: 'Bajo',
+  type: 'BASS',
+  order: 1,
+  volume: 0.8,
+  muted: false,
+  soloed: false,
+  instrumentConfig: {},
+  sampleId: null,
+  createdAt: '',
+  updatedAt: '',
+};
+
 const drumPattern: Pattern = {
   id: 'pat1',
   trackId: 't1',
@@ -63,6 +78,21 @@ const drumPattern: Pattern = {
     active: i % 4 === 0,
     note: null,
     velocity: 1,
+  })),
+  timelinePosition: 0,
+  lengthInBars: 1,
+  createdAt: '',
+  updatedAt: '',
+};
+
+const bassPattern: Pattern = {
+  id: 'pat2',
+  trackId: 't2',
+  name: 'Línea de bajo',
+  steps: Array.from({ length: 16 }, (_, i) => ({
+    active: i % 3 === 0,
+    note: i % 3 === 0 ? 'A1' : null,
+    velocity: 0.9,
   })),
   timelinePosition: 0,
   lengthInBars: 1,
@@ -100,17 +130,27 @@ describe('SequencerPanel', () => {
     expect(screen.getByText('Añade un Track de batería para poder reproducir')).toBeInTheDocument();
   });
 
-  it('deshabilita el botón Play si hay Track DRUM pero sin pattern', () => {
-    useStudioStore.setState({ tracks: [drumTrack], trackPatterns: {}, isLoadingPatterns: false });
+  it('deshabilita Play si el Track DRUM no tiene pattern, pero sigue mostrando el grid del Bajo', () => {
+    useStudioStore.setState({
+      tracks: [drumTrack, bassTrack],
+      trackPatterns: { [bassTrack.id]: bassPattern },
+      isLoadingPatterns: false,
+    });
     render(<SequencerPanel bpm={120} />);
 
-    expect(screen.getByRole('button', { name: 'Reproducir secuenciador' })).toBeDisabled();
-    expect(
-      screen.getByText('Este track de batería no tiene ningún patrón todavía'),
-    ).toBeInTheDocument();
+    const playButton = screen.getByRole('button', { name: 'Reproducir secuenciador' });
+    expect(playButton).toBeDisabled();
+    expect(playButton).toHaveAttribute(
+      'title',
+      'Este track de batería no tiene ningún patrón todavía',
+    );
+    // El grid del Bajo no depende del Kick: si el Bajo ya tiene pattern, se
+    // ve y se puede editar aunque el Kick todavía no tenga el suyo.
+    expect(screen.getByText('Bajo')).toBeInTheDocument();
+    expect(screen.queryByText('Kick')).not.toBeInTheDocument();
   });
 
-  it('habilita el botón Play y muestra el grid cuando hay Track DRUM con pattern', async () => {
+  it('habilita el botón Play y muestra el grid del Kick cuando hay Track DRUM con pattern', async () => {
     sequencerState = { isPlaying: false, currentStep: -1 };
     useStudioStore.setState({
       tracks: [drumTrack],
@@ -127,6 +167,19 @@ describe('SequencerPanel', () => {
     expect(playMock).toHaveBeenCalledTimes(1);
   });
 
+  it('muestra ambos grids apilados (Kick y Bajo) cuando los dos tienen pattern', () => {
+    useStudioStore.setState({
+      tracks: [drumTrack, bassTrack],
+      trackPatterns: { [drumTrack.id]: drumPattern, [bassTrack.id]: bassPattern },
+    });
+    render(<SequencerPanel bpm={124} />);
+
+    expect(screen.getByText('Kick')).toBeInTheDocument();
+    expect(screen.getByText('Bajo')).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${drumTrack.id}-0`)).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${bassTrack.id}-0`)).toBeInTheDocument();
+  });
+
   it('al pulsar mientras suena, llama a stop()', async () => {
     sequencerState = { isPlaying: true, currentStep: 0 };
     useStudioStore.setState({
@@ -140,79 +193,148 @@ describe('SequencerPanel', () => {
     expect(stopMock).toHaveBeenCalledTimes(1);
   });
 
-  it('invierte el estado visual del step al instante, sin esperar la red', async () => {
-    sequencerState = { isPlaying: false, currentStep: -1 };
-    useStudioStore.setState({
-      tracks: [drumTrack],
-      trackPatterns: { [drumTrack.id]: drumPattern },
+  describe('grid del Kick (DRUM)', () => {
+    beforeEach(() => {
+      useStudioStore.setState({
+        tracks: [drumTrack],
+        trackPatterns: { [drumTrack.id]: drumPattern },
+      });
     });
-    updatePatternRequestMock.mockReturnValue(new Promise(() => {})); // nunca resuelve
-    const user = userEvent.setup();
-    render(<SequencerPanel bpm={124} />);
 
-    const step0 = screen.getByTestId('step-0');
-    expect(step0).toHaveAttribute('aria-pressed', 'true'); // steps[0] viene activo
+    it('invierte el estado visual del step al instante, sin esperar la red', async () => {
+      updatePatternRequestMock.mockReturnValue(new Promise(() => {})); // nunca resuelve
+      const user = userEvent.setup();
+      render(<SequencerPanel bpm={124} />);
 
-    await user.click(step0);
+      const step0 = screen.getByTestId(`step-${drumTrack.id}-0`);
+      expect(step0).toHaveAttribute('aria-pressed', 'true'); // steps[0] viene activo
 
-    expect(step0).toHaveAttribute('aria-pressed', 'false');
+      await user.click(step0);
+
+      expect(step0).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('llama al PATCH con el trackId del Kick y el array de steps correcto', async () => {
+      updatePatternRequestMock.mockResolvedValueOnce(drumPattern);
+      const user = userEvent.setup();
+      render(<SequencerPanel bpm={124} />);
+
+      // steps[1] viene inactivo (solo 0, 4, 8, 12 activos de fábrica)
+      await user.click(screen.getByTestId(`step-${drumTrack.id}-1`));
+
+      await waitFor(() => {
+        expect(updatePatternRequestMock).toHaveBeenCalledTimes(1);
+      });
+
+      const [trackId, patternId, input] = updatePatternRequestMock.mock.calls[0];
+      expect(trackId).toBe(drumTrack.id);
+      expect(patternId).toBe(drumPattern.id);
+      expect(input.steps).toHaveLength(16);
+      input.steps.forEach((step, index) => {
+        if (index === 1) {
+          expect(step.active).toBe(true);
+        } else {
+          expect(step.active).toBe(drumPattern.steps[index].active);
+        }
+      });
+    });
+
+    it('revierte el step y muestra un toast de error si el PATCH falla', async () => {
+      const { ApiRequestError } = await import('@/lib/api/httpError');
+      updatePatternRequestMock.mockRejectedValueOnce(new ApiRequestError('No encontrado', 404));
+      const user = userEvent.setup();
+      render(<SequencerPanel bpm={124} />);
+
+      const step0 = screen.getByTestId(`step-${drumTrack.id}-0`);
+      expect(step0).toHaveAttribute('aria-pressed', 'true');
+
+      // No se comprueba el estado optimista intermedio aquí: con un rechazo
+      // inmediato (sin demora artificial), el ciclo aplicar->fallar->revertir
+      // puede completarse dentro del propio `await user.click`, antes de que
+      // el test pueda observarlo -- esa instantaneidad ya la cubre el test
+      // anterior (con una petición que nunca resuelve). Este test verifica el
+      // estado final: revertido, con su toast de error.
+      await user.click(step0);
+
+      await waitFor(() => {
+        expect(screen.getByTestId(`step-${drumTrack.id}-0`)).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+      });
+      expect(toastError).toHaveBeenCalledWith('No encontrado');
+    });
   });
 
-  it('llama al PATCH con el array de steps correcto (solo el step clickeado invertido)', async () => {
-    sequencerState = { isPlaying: false, currentStep: -1 };
-    useStudioStore.setState({
-      tracks: [drumTrack],
-      trackPatterns: { [drumTrack.id]: drumPattern },
-    });
-    updatePatternRequestMock.mockResolvedValueOnce(drumPattern);
-    const user = userEvent.setup();
-    render(<SequencerPanel bpm={124} />);
-
-    // steps[1] viene inactivo (solo 0, 4, 8, 12 activos de fábrica)
-    await user.click(screen.getByTestId('step-1'));
-
-    await waitFor(() => {
-      expect(updatePatternRequestMock).toHaveBeenCalledTimes(1);
+  describe('grid del Bajo (BASS)', () => {
+    beforeEach(() => {
+      // El Kick también tiene pattern: el Play sigue habilitado por él, pero
+      // lo que se ejercita en este describe es exclusivamente el grid/PATCH
+      // del Bajo, en el mismo render con ambos grids visibles a la vez.
+      useStudioStore.setState({
+        tracks: [drumTrack, bassTrack],
+        trackPatterns: { [drumTrack.id]: drumPattern, [bassTrack.id]: bassPattern },
+      });
     });
 
-    const [trackId, patternId, input] = updatePatternRequestMock.mock.calls[0];
-    expect(trackId).toBe(drumTrack.id);
-    expect(patternId).toBe(drumPattern.id);
-    expect(input.steps).toHaveLength(16);
-    input.steps.forEach((step, index) => {
-      if (index === 1) {
-        expect(step.active).toBe(true);
-      } else {
-        expect(step.active).toBe(drumPattern.steps[index].active);
-      }
+    it('invierte el estado visual del step del Bajo al instante, sin esperar la red', async () => {
+      updatePatternRequestMock.mockReturnValue(new Promise(() => {})); // nunca resuelve
+      const user = userEvent.setup();
+      render(<SequencerPanel bpm={124} />);
+
+      const step0 = screen.getByTestId(`step-${bassTrack.id}-0`);
+      expect(step0).toHaveAttribute('aria-pressed', 'true'); // bassPattern.steps[0] viene activo
+
+      await user.click(step0);
+
+      expect(step0).toHaveAttribute('aria-pressed', 'false');
+      // El grid del Kick, en el mismo render, no debe verse afectado.
+      expect(screen.getByTestId(`step-${drumTrack.id}-0`)).toHaveAttribute('aria-pressed', 'true');
     });
-  });
 
-  it('revierte el step y muestra un toast de error si el PATCH falla', async () => {
-    sequencerState = { isPlaying: false, currentStep: -1 };
-    useStudioStore.setState({
-      tracks: [drumTrack],
-      trackPatterns: { [drumTrack.id]: drumPattern },
+    it('llama al PATCH con el trackId del Bajo (no el del Kick) y el array de steps correcto', async () => {
+      updatePatternRequestMock.mockResolvedValueOnce(bassPattern);
+      const user = userEvent.setup();
+      render(<SequencerPanel bpm={124} />);
+
+      // bassPattern.steps[1] viene inactivo (solo 0, 3, 6... activos de fábrica)
+      await user.click(screen.getByTestId(`step-${bassTrack.id}-1`));
+
+      await waitFor(() => {
+        expect(updatePatternRequestMock).toHaveBeenCalledTimes(1);
+      });
+
+      const [trackId, patternId, input] = updatePatternRequestMock.mock.calls[0];
+      expect(trackId).toBe(bassTrack.id);
+      expect(patternId).toBe(bassPattern.id);
+      expect(input.steps).toHaveLength(16);
+      input.steps.forEach((step, index) => {
+        if (index === 1) {
+          expect(step.active).toBe(true);
+        } else {
+          expect(step.active).toBe(bassPattern.steps[index].active);
+        }
+      });
     });
-    const { ApiRequestError } = await import('@/lib/api/httpError');
-    updatePatternRequestMock.mockRejectedValueOnce(new ApiRequestError('No encontrado', 404));
-    const user = userEvent.setup();
-    render(<SequencerPanel bpm={124} />);
 
-    const step0 = screen.getByTestId('step-0');
-    expect(step0).toHaveAttribute('aria-pressed', 'true');
+    it('revierte el step del Bajo y muestra un toast de error si el PATCH falla', async () => {
+      const { ApiRequestError } = await import('@/lib/api/httpError');
+      updatePatternRequestMock.mockRejectedValueOnce(new ApiRequestError('No encontrado', 404));
+      const user = userEvent.setup();
+      render(<SequencerPanel bpm={124} />);
 
-    // No se comprueba el estado optimista intermedio aquí: con un rechazo
-    // inmediato (sin demora artificial), el ciclo aplicar->fallar->revertir
-    // puede completarse dentro del propio `await user.click`, antes de que
-    // el test pueda observarlo -- esa instantaneidad ya la cubre el test
-    // anterior (con una petición que nunca resuelve). Este test verifica el
-    // estado final: revertido, con su toast de error.
-    await user.click(step0);
+      const step0 = screen.getByTestId(`step-${bassTrack.id}-0`);
+      expect(step0).toHaveAttribute('aria-pressed', 'true');
 
-    await waitFor(() => {
-      expect(screen.getByTestId('step-0')).toHaveAttribute('aria-pressed', 'true');
+      await user.click(step0);
+
+      await waitFor(() => {
+        expect(screen.getByTestId(`step-${bassTrack.id}-0`)).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+      });
+      expect(toastError).toHaveBeenCalledWith('No encontrado');
     });
-    expect(toastError).toHaveBeenCalledWith('No encontrado');
   });
 });
