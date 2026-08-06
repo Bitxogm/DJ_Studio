@@ -126,6 +126,36 @@ const hihatPattern: Pattern = {
   updatedAt: '',
 };
 
+const snareTrack: Track = {
+  id: 't4',
+  projectId: 'p1',
+  name: 'Snare',
+  type: 'SNARE',
+  order: 3,
+  volume: 0.8,
+  muted: false,
+  soloed: false,
+  instrumentConfig: {},
+  sampleId: null,
+  createdAt: '',
+  updatedAt: '',
+};
+
+const snarePattern: Pattern = {
+  id: 'pat4',
+  trackId: 't4',
+  name: 'Backbeat',
+  steps: Array.from({ length: 16 }, (_, i) => ({
+    active: i === 4 || i === 12,
+    note: null,
+    velocity: i === 4 || i === 12 ? 0.8 : 0,
+  })),
+  timelinePosition: 0,
+  lengthInBars: 1,
+  createdAt: '',
+  updatedAt: '',
+};
+
 function resetStore() {
   useStudioStore.setState({
     projects: [],
@@ -223,6 +253,28 @@ describe('SequencerPanel', () => {
     expect(screen.getByTestId(`step-${drumTrack.id}-0`)).toBeInTheDocument();
     expect(screen.getByTestId(`step-${bassTrack.id}-0`)).toBeInTheDocument();
     expect(screen.getByTestId(`step-${hihatTrack.id}-0`)).toBeInTheDocument();
+  });
+
+  it('muestra los cuatro grids apilados (Kick, Bajo, Hi-hat y Snare) sin tocar el componente para el cuarto Track', () => {
+    useStudioStore.setState({
+      tracks: [drumTrack, bassTrack, hihatTrack, snareTrack],
+      trackPatterns: {
+        [drumTrack.id]: drumPattern,
+        [bassTrack.id]: bassPattern,
+        [hihatTrack.id]: hihatPattern,
+        [snareTrack.id]: snarePattern,
+      },
+    });
+    render(<SequencerPanel bpm={124} />);
+
+    expect(screen.getByText('Kick')).toBeInTheDocument();
+    expect(screen.getByText('Bajo')).toBeInTheDocument();
+    expect(screen.getByText('Hi-hat')).toBeInTheDocument();
+    expect(screen.getByText('Snare')).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${drumTrack.id}-0`)).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${bassTrack.id}-0`)).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${hihatTrack.id}-0`)).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${snareTrack.id}-4`)).toBeInTheDocument();
   });
 
   it('al pulsar mientras suena, llama a stop()', async () => {

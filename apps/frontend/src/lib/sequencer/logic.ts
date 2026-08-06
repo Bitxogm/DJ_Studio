@@ -13,11 +13,12 @@ export interface StepTrigger {
 
 // Nota por defecto cuando un step activo no especifica la suya -- varía por
 // tipo de Track porque un valor fijo (p.ej. 'C1' para todo) no tendría
-// sentido para un synth de bajo. HIHAT cae en el default: tiene synth
-// soportado (NoiseSynth, ver synthKindForTrackType) pero es ruido filtrado
-// sin altura, así que el valor devuelto aquí no se usa -- ver el branch por
-// tipo de synth en useSequencer.ts. Los tipos sin synth soportado hoy (SYNTH,
-// SAMPLE) tienen igualmente un valor por si en el futuro lo necesitan.
+// sentido para un synth de bajo. HIHAT y SNARE caen en el default: tienen
+// synth soportado (NoiseSynth, ver synthKindForTrackType) pero son ruido
+// filtrado sin altura, así que el valor devuelto aquí no se usa -- ver el
+// branch por tipo de synth en useSequencer.ts. Los tipos sin synth soportado
+// hoy (SYNTH, SAMPLE) tienen igualmente un valor por si en el futuro lo
+// necesitan.
 export function defaultNoteForTrackType(type: TrackType): string {
   switch (type) {
     case 'DRUM':
@@ -32,7 +33,10 @@ export function defaultNoteForTrackType(type: TrackType): string {
 // Qué clase de synth de Tone.js le corresponde a cada TrackType. Tabla pura
 // (sin importar 'tone') para poder testear el mapeo tipo->synth sin
 // necesitar Web Audio -- useSequencer.ts consulta esta tabla y es el único
-// sitio que sabe instanciar las clases reales de Tone.js.
+// sitio que sabe instanciar las clases reales de Tone.js. HIHAT y SNARE
+// comparten la misma clase (NoiseSynth) pero NO la misma configuración --
+// eso vive en useSequencer.ts (createNoiseSynthForTrackType), no aquí: esta
+// tabla solo responde "qué clase", no "con qué parámetros".
 export type SynthKind = 'MembraneSynth' | 'MonoSynth' | 'NoiseSynth' | null;
 
 export function synthKindForTrackType(type: TrackType): SynthKind {
@@ -42,6 +46,7 @@ export function synthKindForTrackType(type: TrackType): SynthKind {
     case 'BASS':
       return 'MonoSynth';
     case 'HIHAT':
+    case 'SNARE':
       return 'NoiseSynth';
     default:
       return null;

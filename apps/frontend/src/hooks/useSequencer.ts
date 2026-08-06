@@ -67,16 +67,32 @@ function createSynthForTrackType(type: TrackType): TrackSynth | null {
       return synth;
     }
     case 'NoiseSynth':
-      // Ruido blanco + envelope muy corto (decay 0.05s, sustain 0): es el
-      // estándar para hi-hats cerrados -- MetalSynth (FM con parciales
-      // metálicos) encaja más en campana/platillo con sustain largo, no en
-      // el "tick" percusivo y seco de un hi-hat cerrado.
-      return new Tone.NoiseSynth({
-        envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.02 },
-      }).toDestination();
+      return createNoiseSynthForTrackType(type).toDestination();
     default:
       return null;
   }
+}
+
+// HIHAT y SNARE comparten clase (NoiseSynth, ver synthKindForTrackType) pero
+// no timbre: un hi-hat cerrado es corto y brillante, un snare/clap tiene más
+// cuerpo y algo de sustain. MetalSynth (FM con parciales metálicos) se
+// descarta para ambos por estar pensado para campana/platillo, no para un
+// golpe basado en ruido.
+function createNoiseSynthForTrackType(type: TrackType): Tone.NoiseSynth {
+  if (type === 'SNARE') {
+    // Ruido rosa (más cuerpo/graves que el blanco) + decay/release más
+    // largos que el hi-hat: da el "cuerpo" característico de snare/clap sin
+    // llegar a tener sustain real (sigue siendo un golpe, sustain: 0).
+    return new Tone.NoiseSynth({
+      noise: { type: 'pink' },
+      envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 },
+    });
+  }
+  // HIHAT: ruido blanco + envelope muy corto -- el estándar para hi-hats
+  // cerrados, el "tick" percusivo y seco.
+  return new Tone.NoiseSynth({
+    envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.02 },
+  });
 }
 
 // Toda la orquestación de Tone.js vive aquí -- ver CLAUDE.md > Audio. Los

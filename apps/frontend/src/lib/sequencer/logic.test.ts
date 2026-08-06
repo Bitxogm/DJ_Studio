@@ -54,6 +54,10 @@ describe('defaultNoteForTrackType', () => {
   it('HIHAT tiene synth (NoiseSynth) pero es ruido sin altura -- el valor devuelto no se usa', () => {
     expect(defaultNoteForTrackType('HIHAT')).toBe('C3');
   });
+
+  it('SNARE también es ruido sin altura (comparte NoiseSynth con HIHAT) -- el valor devuelto no se usa', () => {
+    expect(defaultNoteForTrackType('SNARE')).toBe('C3');
+  });
 });
 
 describe('synthKindForTrackType', () => {
@@ -67,6 +71,10 @@ describe('synthKindForTrackType', () => {
 
   it('HIHAT usa NoiseSynth (ruido filtrado, no un oscilador afinable)', () => {
     expect(synthKindForTrackType('HIHAT')).toBe('NoiseSynth');
+  });
+
+  it('SNARE también usa NoiseSynth (misma clase que HIHAT, distinta configuración en useSequencer)', () => {
+    expect(synthKindForTrackType('SNARE')).toBe('NoiseSynth');
   });
 
   it('tipos sin synth soportado hoy (SYNTH, SAMPLE) devuelven null', () => {

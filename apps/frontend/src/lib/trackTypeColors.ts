@@ -39,4 +39,9 @@ export const TRACK_TYPE_COLORS: Record<TrackType, TrackTypeColor> = {
     stepActive: 'border-sky-500/60 bg-sky-500/40 hover:bg-sky-500/50',
     rowTint: 'bg-sky-500/[0.06]',
   },
+  SNARE: {
+    badge: 'border-red-500/30 bg-red-500/15 text-red-400',
+    stepActive: 'border-red-500/60 bg-red-500/40 hover:bg-red-500/50',
+    rowTint: 'bg-red-500/[0.06]',
+  },
 };

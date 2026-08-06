@@ -59,6 +59,19 @@ function constantHihatSteps(): PatternStepSeed[] {
   return Array.from({ length: 16 }, () => ({ active: true, note: null, velocity: 0.6 }));
 }
 
+// Backbeat clásico: activo en los tiempos 2 y 4 del compás (índices 4 y 12
+// de 16, 0-indexados -- steps 5 y 13 en la numeración 1-16 de la UI). El
+// Kick (fourOnTheFloorSteps) YA suena en esos mismos índices porque es
+// four-on-the-floor (los 4 tiempos): es el layout correcto de house/disco,
+// kick en los 4 tiempos y snare/clap acentuando el 2 y 4 encima, no un hueco
+// vacío.
+function backbeatSnareSteps(): PatternStepSeed[] {
+  return Array.from({ length: 16 }, (_, i) => {
+    const active = i === 4 || i === 12;
+    return { active, note: null, velocity: active ? 0.8 : 0 };
+  });
+}
+
 async function main(): Promise<void> {
   if (config.nodeEnv === 'production') {
     throw new Error(
@@ -137,6 +150,23 @@ async function main(): Promise<void> {
                   },
                 },
               },
+              {
+                name: 'Snare',
+                type: 'SNARE',
+                order: 3,
+                instrumentConfig: {
+                  synth: 'NoiseSynth',
+                  noise: { type: 'pink' },
+                  envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 },
+                },
+                patterns: {
+                  create: {
+                    name: 'Backbeat',
+                    steps: backbeatSnareSteps(),
+                    timelinePosition: 0,
+                  },
+                },
+              },
             ],
           },
         },
@@ -153,7 +183,7 @@ async function main(): Promise<void> {
   });
 
   console.log('Seed de desarrollo aplicado:');
-  console.log(`  - ${demo1.email} — con proyecto de ejemplo (3 tracks, 3 patterns)`);
+  console.log(`  - ${demo1.email} — con proyecto de ejemplo (4 tracks, 4 patterns)`);
   console.log(`  - ${demo2.email} — sin proyectos (usuario recién registrado)`);
 }
 
