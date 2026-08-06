@@ -63,6 +63,7 @@ enum TrackType {
   SYNTH
   SAMPLE
   BASS
+  HIHAT
 }
 
 /// Una pista dentro de un Proyecto (batería, bajo, synth, sample...), con su

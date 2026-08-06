@@ -119,6 +119,23 @@ docker compose -f docker-compose.dev.yml up --build   # entorno dev completo
   `.env.example`. La red interna de Docker sigue usando el 5432 normal.
 - Comandos: `pnpm --filter @beatforge/backend run db:migrate` (dev),
   `db:migrate:deploy` (prod), `db:studio`, `db:generate`.
+- **Nunca pasar `--name` con `pnpm run db:migrate -- --name X`**: pnpm no
+  elimina el `--` antes de reenviarlo al script (`prisma migrate dev`), así
+  que Prisma recibe un `--` literal de más, lo interpreta como fin de flags e
+  ignora `--name` — `migrate dev` entra entonces en su prompt interactivo de
+  nombre de migración, que se queda colgado sin más si el stdin no es un TTY
+  (por ejemplo, ejecutado desde Claude Code). Usar en su lugar
+  `pnpm --filter @beatforge/backend exec prisma migrate dev --name X`
+  (`pnpm exec` no tiene ese problema de doble `--`).
+- **Tras cualquier migración, regenerar el cliente antes de tocar datos**:
+  `db:migrate` sí encadena `prisma generate`, pero si el cliente ya estaba
+  generado de una sesión anterior y se edita `schema.prisma` a mano seguido
+  de un `db:seed` u otro script que NO pasa por `db:migrate`
+  (`db:seed` es solo `tsx prisma/seed.ts`, sin `generate` de por medio), el
+  cliente en `src/generated/prisma` puede quedar desactualizado respecto al
+  enum/columnas nuevas y Prisma responde con `Invalid value for argument
+'type'. Expected TrackType.` (o el campo que corresponda) aunque el valor
+  sea válido en el schema — ejecutar `db:generate` a mano soluciona esto.
 
 ## Convenciones de auth (tras el Prompt 3)
 
