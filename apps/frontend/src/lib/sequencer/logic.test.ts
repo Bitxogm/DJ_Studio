@@ -10,6 +10,7 @@ import {
   isTrackAudible,
   linearVolumeToDb,
   resolveStepTrigger,
+  synthKindForTrackType,
   toggleStepActive,
   type AudioVoiceLike,
 } from './logic';
@@ -48,6 +49,29 @@ describe('defaultNoteForTrackType', () => {
   it('tipos sin synth soportado hoy devuelven igualmente un valor', () => {
     expect(defaultNoteForTrackType('SYNTH')).toBe('C3');
     expect(defaultNoteForTrackType('SAMPLE')).toBe('C3');
+  });
+
+  it('HIHAT tiene synth (NoiseSynth) pero es ruido sin altura -- el valor devuelto no se usa', () => {
+    expect(defaultNoteForTrackType('HIHAT')).toBe('C3');
+  });
+});
+
+describe('synthKindForTrackType', () => {
+  it('DRUM usa MembraneSynth', () => {
+    expect(synthKindForTrackType('DRUM')).toBe('MembraneSynth');
+  });
+
+  it('BASS usa MonoSynth', () => {
+    expect(synthKindForTrackType('BASS')).toBe('MonoSynth');
+  });
+
+  it('HIHAT usa NoiseSynth (ruido filtrado, no un oscilador afinable)', () => {
+    expect(synthKindForTrackType('HIHAT')).toBe('NoiseSynth');
+  });
+
+  it('tipos sin synth soportado hoy (SYNTH, SAMPLE) devuelven null', () => {
+    expect(synthKindForTrackType('SYNTH')).toBeNull();
+    expect(synthKindForTrackType('SAMPLE')).toBeNull();
   });
 });
 

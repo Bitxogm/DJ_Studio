@@ -8,6 +8,7 @@ import {
   applyMixerStateToVoices,
   defaultNoteForTrackType,
   resolveStepTrigger,
+  synthKindForTrackType,
 } from '@/lib/sequencer/logic';
 
 interface UseSequencerOptions {
@@ -30,7 +31,7 @@ interface UseSequencerResult {
   stop: () => void;
 }
 
-type TrackSynth = Tone.MembraneSynth | Tone.MonoSynth;
+type TrackSynth = Tone.MembraneSynth | Tone.MonoSynth | Tone.NoiseSynth;
 
 interface TrackVoice {
   synth: TrackSynth;
@@ -38,14 +39,16 @@ interface TrackVoice {
 }
 
 // Un synth por tipo de Track, no por nombre ni por posición -- así cualquier
-// Track nuevo del mismo tipo suena igual sin tocar este código. Tipos sin
+// Track nuevo del mismo tipo suena igual sin tocar este código. Qué clase le
+// corresponde a cada tipo vive en synthKindForTrackType (logic.ts, pura y
+// testeada sin Tone.js); aquí solo se instancia la clase real. Tipos sin
 // synth soportado hoy (SYNTH, SAMPLE) devuelven null: ver alcance en
 // CLAUDE.md > Audio.
 function createSynthForTrackType(type: TrackType): TrackSynth | null {
-  switch (type) {
-    case 'DRUM':
+  switch (synthKindForTrackType(type)) {
+    case 'MembraneSynth':
       return new Tone.MembraneSynth().toDestination();
-    case 'BASS': {
+    case 'MonoSynth': {
       const synth = new Tone.MonoSynth({
         oscillator: { type: 'sawtooth' },
         envelope: { attack: 0.01, decay: 0.25, sustain: 0.3, release: 0.3 },
@@ -63,6 +66,14 @@ function createSynthForTrackType(type: TrackType): TrackSynth | null {
       synth.portamento = 0.02;
       return synth;
     }
+    case 'NoiseSynth':
+      // Ruido blanco + envelope muy corto (decay 0.05s, sustain 0): es el
+      // estándar para hi-hats cerrados -- MetalSynth (FM con parciales
+      // metálicos) encaja más en campana/platillo con sustain largo, no en
+      // el "tick" percusivo y seco de un hi-hat cerrado.
+      return new Tone.NoiseSynth({
+        envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.02 },
+      }).toDestination();
     default:
       return null;
   }
@@ -198,7 +209,14 @@ export function useSequencer({
             const step = currentPattern?.steps[stepIndex];
             const trigger = step ? resolveStepTrigger(step, defaultNote) : null;
             if (trigger) {
-              synth.triggerAttackRelease(trigger.note, '8n', time, trigger.velocity);
+              // NoiseSynth no tiene altura (es ruido filtrado): su
+              // triggerAttackRelease no lleva nota, a diferencia de
+              // MembraneSynth/MonoSynth -- ver Tone/instrument/NoiseSynth.ts.
+              if (synth instanceof Tone.NoiseSynth) {
+                synth.triggerAttackRelease('8n', time, trigger.velocity);
+              } else {
+                synth.triggerAttackRelease(trigger.note, '8n', time, trigger.velocity);
+              }
             }
             // Todas las Sequences comparten Transport/subdivisión y arrancan
             // juntas (sequence.start(0) más abajo), así que siempre están en

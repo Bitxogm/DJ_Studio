@@ -100,6 +100,32 @@ const bassPattern: Pattern = {
   updatedAt: '',
 };
 
+const hihatTrack: Track = {
+  id: 't3',
+  projectId: 'p1',
+  name: 'Hi-hat',
+  type: 'HIHAT',
+  order: 2,
+  volume: 0.6,
+  muted: false,
+  soloed: false,
+  instrumentConfig: {},
+  sampleId: null,
+  createdAt: '',
+  updatedAt: '',
+};
+
+const hihatPattern: Pattern = {
+  id: 'pat3',
+  trackId: 't3',
+  name: 'Corcheas',
+  steps: Array.from({ length: 16 }, () => ({ active: true, note: null, velocity: 0.6 })),
+  timelinePosition: 0,
+  lengthInBars: 1,
+  createdAt: '',
+  updatedAt: '',
+};
+
 function resetStore() {
   useStudioStore.setState({
     projects: [],
@@ -178,6 +204,25 @@ describe('SequencerPanel', () => {
     expect(screen.getByText('Bajo')).toBeInTheDocument();
     expect(screen.getByTestId(`step-${drumTrack.id}-0`)).toBeInTheDocument();
     expect(screen.getByTestId(`step-${bassTrack.id}-0`)).toBeInTheDocument();
+  });
+
+  it('muestra los tres grids apilados (Kick, Bajo y Hi-hat) sin tocar el componente para el tercer Track', () => {
+    useStudioStore.setState({
+      tracks: [drumTrack, bassTrack, hihatTrack],
+      trackPatterns: {
+        [drumTrack.id]: drumPattern,
+        [bassTrack.id]: bassPattern,
+        [hihatTrack.id]: hihatPattern,
+      },
+    });
+    render(<SequencerPanel bpm={124} />);
+
+    expect(screen.getByText('Kick')).toBeInTheDocument();
+    expect(screen.getByText('Bajo')).toBeInTheDocument();
+    expect(screen.getByText('Hi-hat')).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${drumTrack.id}-0`)).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${bassTrack.id}-0`)).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${hihatTrack.id}-0`)).toBeInTheDocument();
   });
 
   it('al pulsar mientras suena, llama a stop()', async () => {
@@ -330,6 +375,73 @@ describe('SequencerPanel', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId(`step-${bassTrack.id}-0`)).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+      });
+      expect(toastError).toHaveBeenCalledWith('No encontrado');
+    });
+  });
+
+  describe('grid del Hi-hat (HIHAT) -- prueba de genericidad con un tercer TrackType', () => {
+    beforeEach(() => {
+      useStudioStore.setState({
+        tracks: [drumTrack, bassTrack, hihatTrack],
+        trackPatterns: {
+          [drumTrack.id]: drumPattern,
+          [bassTrack.id]: bassPattern,
+          [hihatTrack.id]: hihatPattern,
+        },
+      });
+    });
+
+    it('invierte el estado visual del step del Hi-hat al instante, sin esperar la red', async () => {
+      updatePatternRequestMock.mockReturnValue(new Promise(() => {})); // nunca resuelve
+      const user = userEvent.setup();
+      render(<SequencerPanel bpm={124} />);
+
+      const step0 = screen.getByTestId(`step-${hihatTrack.id}-0`);
+      expect(step0).toHaveAttribute('aria-pressed', 'true'); // hihatPattern.steps[0] viene activo
+
+      await user.click(step0);
+
+      expect(step0).toHaveAttribute('aria-pressed', 'false');
+      // Kick y Bajo, en el mismo render, no deben verse afectados.
+      expect(screen.getByTestId(`step-${drumTrack.id}-0`)).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId(`step-${bassTrack.id}-0`)).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('llama al PATCH con el trackId del Hi-hat (no Kick ni Bajo) y el array de steps correcto', async () => {
+      updatePatternRequestMock.mockResolvedValueOnce(hihatPattern);
+      const user = userEvent.setup();
+      render(<SequencerPanel bpm={124} />);
+
+      await user.click(screen.getByTestId(`step-${hihatTrack.id}-1`));
+
+      await waitFor(() => {
+        expect(updatePatternRequestMock).toHaveBeenCalledTimes(1);
+      });
+
+      const [trackId, patternId, input] = updatePatternRequestMock.mock.calls[0];
+      expect(trackId).toBe(hihatTrack.id);
+      expect(patternId).toBe(hihatPattern.id);
+      expect(input.steps).toHaveLength(16);
+      expect(input.steps[1].active).toBe(false); // hihatPattern.steps[1] venía activo
+    });
+
+    it('revierte el step del Hi-hat y muestra un toast de error si el PATCH falla', async () => {
+      const { ApiRequestError } = await import('@/lib/api/httpError');
+      updatePatternRequestMock.mockRejectedValueOnce(new ApiRequestError('No encontrado', 404));
+      const user = userEvent.setup();
+      render(<SequencerPanel bpm={124} />);
+
+      const step0 = screen.getByTestId(`step-${hihatTrack.id}-0`);
+      expect(step0).toHaveAttribute('aria-pressed', 'true');
+
+      await user.click(step0);
+
+      await waitFor(() => {
+        expect(screen.getByTestId(`step-${hihatTrack.id}-0`)).toHaveAttribute(
           'aria-pressed',
           'true',
         );
