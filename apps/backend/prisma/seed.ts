@@ -49,6 +49,16 @@ function simpleBassSteps(): PatternStepSeed[] {
   return notes.map((note) => ({ active: note !== null, note, velocity: note !== null ? 0.9 : 0 }));
 }
 
+// Hi-hat cerrado en TODAS las corcheas (16/16), no solo en los contratiempos:
+// es el patrón más reconocible de four-on-the-floor house/disco, y al ser
+// denso no compite rítmicamente con el Kick (0,4,8,12) ni con la síncopa del
+// Bajo -- simplemente rellena el pulso constante por debajo de ambos.
+// Velocity 0.6 (no 1): un hi-hat a máxima velocity suena más fuerte que el
+// propio Kick, que es quien debe llevar el peso ritmico.
+function constantHihatSteps(): PatternStepSeed[] {
+  return Array.from({ length: 16 }, () => ({ active: true, note: null, velocity: 0.6 }));
+}
+
 async function main(): Promise<void> {
   if (config.nodeEnv === 'production') {
     throw new Error(
@@ -110,6 +120,23 @@ async function main(): Promise<void> {
                   },
                 },
               },
+              {
+                name: 'Hi-hat',
+                type: 'HIHAT',
+                order: 2,
+                volume: 0.6,
+                instrumentConfig: {
+                  synth: 'NoiseSynth',
+                  envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.02 },
+                },
+                patterns: {
+                  create: {
+                    name: 'Corcheas',
+                    steps: constantHihatSteps(),
+                    timelinePosition: 0,
+                  },
+                },
+              },
             ],
           },
         },
@@ -126,7 +153,7 @@ async function main(): Promise<void> {
   });
 
   console.log('Seed de desarrollo aplicado:');
-  console.log(`  - ${demo1.email} — con proyecto de ejemplo (2 tracks, 2 patterns)`);
+  console.log(`  - ${demo1.email} — con proyecto de ejemplo (3 tracks, 3 patterns)`);
   console.log(`  - ${demo2.email} — sin proyectos (usuario recién registrado)`);
 }
 
