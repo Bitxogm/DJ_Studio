@@ -2,6 +2,26 @@
 
 Electronic music production studio in the browser.
 
+## Qué es BeatForge
+
+BeatForge es un estudio de producción musical electrónica (estilo house/disco)
+que corre entero en el navegador, pensado para gente sin conocimientos previos
+de producción musical: no hace falta saber teoría musical ni haber usado un
+DAW antes para construir un patrón rítmico.
+
+La unidad básica es el patrón de 16 steps por Track: haces click en las
+casillas que quieres que suenen y el motor de audio (Tone.js) sintetiza el
+sonido en tiempo real — los instrumentos base no usan samples de audio
+pregrabados, son sintetizadores generados por código que reaccionan al
+instante a cada cambio. Los instrumentos disponibles hoy son Kick (batería),
+Bajo, Hi-hat y Snare, cada uno con su propio synth y su propio patrón, y todos
+sonando a la vez con el mismo Transport.
+
+Cualquier step se puede editar en tiempo real, incluso con el secuenciador
+sonando — el cambio se aplica al instante en el audio y se guarda en base de
+datos (PostgreSQL), así que un patrón se conserva entre sesiones y no depende
+de mantener la pestaña abierta.
+
 ## Stack
 
 | Layer           | Tech                                                |
@@ -110,6 +130,69 @@ beatforge/
 └── docker-compose.dev.yml Desarrollo con hot-reload
 ```
 
+## Arquitectura
+
+```
+Navegador (Tone.js -- motor de audio, corre solo en cliente)
+        │
+        ▼
+Next.js Route Handlers (/api/*)   ← BFF, el cliente nunca llama al backend directo
+        │
+        ▼
+Express backend (/api/*)          ← JWT access + refresh token rotation, cookies httpOnly
+        │
+        ▼
+PostgreSQL (vía Prisma + @prisma/adapter-pg)
+```
+
+- **Frontend como BFF**: el navegador solo habla con los Route Handlers de
+  Next.js (`apps/frontend/src/app/api/**`), que hacen de proxy hacia el
+  backend interno (`BACKEND_INTERNAL_URL`, variable solo de servidor). Esto
+  evita CORS por completo -- el cliente nunca hace fetch directo al backend.
+- **Backend**: Express + TypeScript, Prisma como ORM (driver adapter
+  `@prisma/adapter-pg`) sobre PostgreSQL. Autenticación con JWT de acceso de
+  vida corta + refresh token aleatorio con rotación en cada uso, ambos en
+  cookies httpOnly (nunca localStorage/JS del navegador).
+- **Motor de audio multi-voz**: un único hook (`useSequencer`) orquesta todos
+  los Tracks reproducibles a la vez con un registro imperativo
+  (`Map<trackId, {synth, sequence}>`) que se construye y destruye dinámicamente
+  según qué Tracks tengan Pattern -- no hay un hook por Track (React no
+  permite invocar hooks condicionalmente ni en bucles). Qué clase de
+  sintetizador de Tone.js le corresponde a cada `TrackType` es una tabla pura
+  (`synthKindForTrackType`): `DRUM`→`MembraneSynth`, `BASS`→`MonoSynth`,
+  `HIHAT`/`SNARE`→`NoiseSynth` (con distinta configuración de ruido/envelope
+  cada uno para diferenciar su timbre).
+- **Lógica de audio separada de Tone.js**: las decisiones de qué debe sonar y
+  con qué volumen (qué step dispara, si un Track está audible según su
+  mute/solo y el solo de los demás, la conversión de volumen lineal a
+  decibelios) viven en funciones puras (`src/lib/sequencer/logic.ts`) sin
+  importar `tone` ni depender de la Web Audio API -- así se pueden testear
+  sin necesitar un navegador real (jsdom no implementa Web Audio).
+- **Actualización optimista**: las ediciones de step del secuenciador usan
+  `runOptimisticUpdate` (`src/lib/optimisticUpdate.ts`): aplica el cambio de
+  inmediato en la UI, lanza la petición al backend, y si falla revierte el
+  cambio y muestra un toast de error -- así la edición se siente instantánea
+  sin esperar a la respuesta del servidor.
+
+## Cómo trabajamos en este proyecto
+
+Las decisiones de arquitectura y producto se toman fuera del editor, en
+conversación (con Claude, vía chat) antes de escribir una sola línea. La
+implementación real la hace Claude Code dentro de VS Code, siguiendo prompts
+precisos y secuenciales: una tarea a la vez, sin improvisar ni adelantar
+decisiones de arquitectura a mitad de una implementación que no se han
+acordado explícitamente todavía.
+
+Este README y `CLAUDE.md` documentan las convenciones ya fijadas (stack,
+patrones de auth, estructura de carpetas, reglas de Prisma/Tone.js...)
+precisamente para no tener que repetir ese contexto en cada sesión nueva.
+
+Cada feature de audio nueva sigue el mismo patrón: primero la lógica pura y
+sus tests (sin Tone.js ni Web Audio de por medio), después la integración
+real contra el motor de audio, y por último una verificación explícita
+(tests + build, y cuando aplica, comprobación manual) antes de dar el cambio
+por terminado -- nunca se asume que algo funciona solo porque compila.
+
 ## Seguridad
 
 ### Reglas básicas
@@ -145,4 +228,22 @@ pnpm build
 
 # Limpiar artefactos
 pnpm clean
+
+# Tests (Vitest) en frontend y backend
+pnpm test
+pnpm --filter @beatforge/frontend test   # solo frontend
+pnpm --filter @beatforge/backend test    # solo backend
 ```
+
+### Migraciones de Prisma
+
+```bash
+pnpm --filter @beatforge/backend exec prisma migrate dev --name <nombre>
+```
+
+**Nunca** `pnpm --filter @beatforge/backend run db:migrate -- --name <nombre>`:
+pnpm reenvía el `--` literal al script (`prisma migrate dev`), Prisma lo
+interpreta como fin de flags e ignora `--name` -- `migrate dev` entra
+entonces en su prompt interactivo de nombre de migración, que se queda
+colgado sin más si el proceso no tiene un TTY (por ejemplo, ejecutado desde
+Claude Code). `pnpm exec` no tiene ese problema de doble `--`.
