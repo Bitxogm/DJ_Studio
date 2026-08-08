@@ -64,6 +64,16 @@ describe('TrackRow', () => {
     expect(screen.getByText('SYNTH')).toBeInTheDocument();
   });
 
+  it('muestra el nombre humano del sonido debajo del nombre del Track, sin sustituir el badge técnico', () => {
+    render(
+      <TrackRow track={{ ...baseTrack, type: 'HIHAT_OPEN', name: 'Mi hi-hat' }} projectId="p1" />,
+    );
+
+    expect(screen.getByText('Mi hi-hat')).toBeInTheDocument();
+    expect(screen.getByText('Hi-hat abierto')).toBeInTheDocument();
+    expect(screen.getByText('HIHAT_OPEN')).toBeInTheDocument();
+  });
+
   it('al pulsar Mute, dispara la mutación con muted:true', async () => {
     updateTrackRequestMock.mockResolvedValueOnce({ ...baseTrack, muted: true });
     const user = userEvent.setup();

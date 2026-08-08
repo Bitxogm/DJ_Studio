@@ -10,6 +10,7 @@ import { Slider } from '@/components/ui/slider';
 import { ApiRequestError } from '@/lib/api/httpError';
 import { updateTrackRequest } from '@/lib/api/tracks';
 import { TRACK_TYPE_COLORS } from '@/lib/trackTypeColors';
+import { TRACK_TYPE_LABELS } from '@/lib/trackTypeLabels';
 import { cn } from '@/lib/utils';
 import { useStudioStore } from '@/store/studio';
 
@@ -48,6 +49,15 @@ export function TrackRow({ track, projectId }: TrackRowProps) {
     <div className="flex items-center gap-4 rounded-lg border border-border bg-card/50 px-4 py-3">
       <div className="flex w-40 shrink-0 flex-col gap-1.5">
         <span className="truncate text-sm font-medium text-foreground">{track.name}</span>
+        {/* Si el usuario ya nombró el Track igual que el sonido real (p.ej.
+            un DRUM llamado "Kick", el caso más común), repetirlo aquí no
+            aporta nada -- solo se muestra cuando dice algo que el nombre no
+            dice ya. */}
+        {TRACK_TYPE_LABELS[track.type] !== track.name ? (
+          <span className="text-[10px] text-muted-foreground/60">
+            {TRACK_TYPE_LABELS[track.type]}
+          </span>
+        ) : null}
         <Badge variant="outline" className={cn('w-fit', TRACK_TYPE_COLORS[track.type].badge)}>
           {track.type}
         </Badge>

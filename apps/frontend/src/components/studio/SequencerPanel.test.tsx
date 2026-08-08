@@ -156,10 +156,41 @@ const snarePattern: Pattern = {
   updatedAt: '',
 };
 
+const hihatOpenTrack: Track = {
+  id: 't5',
+  projectId: 'p1',
+  name: 'Hi-hat abierto',
+  type: 'HIHAT_OPEN',
+  order: 4,
+  volume: 0.7,
+  muted: false,
+  soloed: false,
+  instrumentConfig: {},
+  sampleId: null,
+  createdAt: '',
+  updatedAt: '',
+};
+
+const hihatOpenPattern: Pattern = {
+  id: 'pat5',
+  trackId: 't5',
+  name: 'Acento final',
+  steps: Array.from({ length: 16 }, (_, i) => ({
+    active: i === 15,
+    note: null,
+    velocity: i === 15 ? 0.7 : 0,
+  })),
+  timelinePosition: 0,
+  lengthInBars: 1,
+  createdAt: '',
+  updatedAt: '',
+};
+
 function resetStore() {
   useStudioStore.setState({
     projects: [],
     selectedProjectId: null,
+    currentUserId: null,
     tracks: [],
     isLoadingTracks: false,
     trackPatterns: {},
@@ -174,6 +205,7 @@ describe('SequencerPanel', () => {
     updatePatternRequestMock.mockReset();
     toastError.mockClear();
     sequencerState = { isPlaying: false, currentStep: -1 };
+    localStorage.clear();
     resetStore();
   });
 
@@ -221,6 +253,43 @@ describe('SequencerPanel', () => {
 
     await user.click(playButton);
     expect(playMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('un Track recién creado con su Pattern vacío auto-generado (16 steps inactivos) se muestra como grid editable, no como mensaje bloqueado', async () => {
+    // Misma forma exacta que crea track.service.ts al crear un Track nuevo:
+    // 16 steps { active:false, note:null, velocity:0 }. Antes del fix de
+    // auto-creación de Pattern, un Track así no existía nunca en la
+    // práctica (el backend no creaba ningún Pattern) y el usuario se quedaba
+    // bloqueado sin ningún botón para salir de ahí -- este test fija que,
+    // en cuanto el Pattern (aunque esté vacío) llega al store, el grid
+    // aparece igual que con cualquier otro Pattern, sin mensaje de aviso.
+    const freshPattern: Pattern = {
+      id: 'pat-fresh',
+      trackId: drumTrack.id,
+      name: 'Patrón principal',
+      steps: Array.from({ length: 16 }, () => ({ active: false, note: null, velocity: 0 })),
+      timelinePosition: 0,
+      lengthInBars: 1,
+      createdAt: '',
+      updatedAt: '',
+    };
+    useStudioStore.setState({
+      tracks: [drumTrack],
+      trackPatterns: { [drumTrack.id]: freshPattern },
+    });
+    render(<SequencerPanel bpm={124} />);
+
+    expect(
+      screen.queryByText('Este track de batería no tiene ningún patrón todavía'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('Kick')).toBeInTheDocument();
+    const step0 = screen.getByTestId(`step-${drumTrack.id}-0`);
+    expect(step0).toHaveAttribute('aria-pressed', 'false');
+
+    updatePatternRequestMock.mockResolvedValueOnce(freshPattern);
+    const user = userEvent.setup();
+    await user.click(step0);
+    expect(step0).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('muestra ambos grids apilados (Kick y Bajo) cuando los dos tienen pattern', () => {
@@ -275,6 +344,31 @@ describe('SequencerPanel', () => {
     expect(screen.getByTestId(`step-${bassTrack.id}-0`)).toBeInTheDocument();
     expect(screen.getByTestId(`step-${hihatTrack.id}-0`)).toBeInTheDocument();
     expect(screen.getByTestId(`step-${snareTrack.id}-4`)).toBeInTheDocument();
+  });
+
+  it('muestra los cinco grids apilados (Kick, Bajo, Hi-hat, Snare y Hi-hat abierto) sin tocar el componente para el quinto Track', () => {
+    useStudioStore.setState({
+      tracks: [drumTrack, bassTrack, hihatTrack, snareTrack, hihatOpenTrack],
+      trackPatterns: {
+        [drumTrack.id]: drumPattern,
+        [bassTrack.id]: bassPattern,
+        [hihatTrack.id]: hihatPattern,
+        [snareTrack.id]: snarePattern,
+        [hihatOpenTrack.id]: hihatOpenPattern,
+      },
+    });
+    render(<SequencerPanel bpm={124} />);
+
+    expect(screen.getByText('Kick')).toBeInTheDocument();
+    expect(screen.getByText('Bajo')).toBeInTheDocument();
+    expect(screen.getByText('Hi-hat')).toBeInTheDocument();
+    expect(screen.getByText('Snare')).toBeInTheDocument();
+    expect(screen.getByText('Hi-hat abierto')).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${drumTrack.id}-0`)).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${bassTrack.id}-0`)).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${hihatTrack.id}-0`)).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${snareTrack.id}-4`)).toBeInTheDocument();
+    expect(screen.getByTestId(`step-${hihatOpenTrack.id}-15`)).toBeInTheDocument();
   });
 
   it('al pulsar mientras suena, llama a stop()', async () => {
@@ -499,6 +593,77 @@ describe('SequencerPanel', () => {
         );
       });
       expect(toastError).toHaveBeenCalledWith('No encontrado');
+    });
+  });
+
+  describe('hint de primera vez', () => {
+    const HINT_TEXT = 'Haz click en una celda para cambiar el ritmo';
+
+    it('aparece para un usuario nuevo (sin localStorage) en cuanto hay al menos un Track editable', async () => {
+      useStudioStore.setState({
+        currentUserId: 'user-hint-1',
+        tracks: [drumTrack],
+        trackPatterns: { [drumTrack.id]: drumPattern },
+      });
+      render(<SequencerPanel bpm={124} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(new RegExp(HINT_TEXT))).toBeInTheDocument();
+      });
+    });
+
+    it('no aparece si no hay ningún Track editable, aunque el usuario nunca lo haya visto', () => {
+      useStudioStore.setState({
+        currentUserId: 'user-hint-2',
+        tracks: [],
+        trackPatterns: {},
+      });
+      render(<SequencerPanel bpm={124} />);
+
+      expect(screen.queryByText(new RegExp(HINT_TEXT))).not.toBeInTheDocument();
+    });
+
+    it('desaparece al pulsar la X y no vuelve a aparecer en un remount (persistido en localStorage)', async () => {
+      useStudioStore.setState({
+        currentUserId: 'user-hint-3',
+        tracks: [drumTrack],
+        trackPatterns: { [drumTrack.id]: drumPattern },
+      });
+      const user = userEvent.setup();
+      const { unmount } = render(<SequencerPanel bpm={124} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(new RegExp(HINT_TEXT))).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Cerrar aviso' }));
+      expect(screen.queryByText(new RegExp(HINT_TEXT))).not.toBeInTheDocument();
+
+      unmount();
+      render(<SequencerPanel bpm={124} />);
+      expect(screen.queryByText(new RegExp(HINT_TEXT))).not.toBeInTheDocument();
+    });
+
+    it('desaparece al hacer click en cualquier step (no solo con la X), y el click sigue activando el step', async () => {
+      updatePatternRequestMock.mockReturnValue(new Promise(() => {})); // nunca resuelve
+      useStudioStore.setState({
+        currentUserId: 'user-hint-4',
+        tracks: [drumTrack],
+        trackPatterns: { [drumTrack.id]: drumPattern },
+      });
+      const user = userEvent.setup();
+      render(<SequencerPanel bpm={124} />);
+
+      await waitFor(() => {
+        expect(screen.getByText(new RegExp(HINT_TEXT))).toBeInTheDocument();
+      });
+
+      const step1 = screen.getByTestId(`step-${drumTrack.id}-1`);
+      expect(step1).toHaveAttribute('aria-pressed', 'false');
+      await user.click(step1);
+
+      expect(screen.queryByText(new RegExp(HINT_TEXT))).not.toBeInTheDocument();
+      expect(step1).toHaveAttribute('aria-pressed', 'true');
     });
   });
 });

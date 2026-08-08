@@ -2,13 +2,15 @@
 
 import { useState } from 'react';
 import type { Pattern, Track } from '@beatforge/shared';
-import { ChevronDown, ChevronUp, Play, Square } from 'lucide-react';
+import { ChevronDown, ChevronUp, Play, Square, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { usePatternEditor } from '@/hooks/usePatternEditor';
 import { useSequencer } from '@/hooks/useSequencer';
+import { useSequencerHint } from '@/hooks/useSequencerHint';
 import { findDrumTrack, getPlayDisabledReason } from '@/lib/sequencer/logic';
 import { TRACK_TYPE_COLORS } from '@/lib/trackTypeColors';
+import { TRACK_TYPE_LABELS } from '@/lib/trackTypeLabels';
 import { cn } from '@/lib/utils';
 import { useStudioStore } from '@/store/studio';
 
@@ -45,20 +47,28 @@ const EMPTY_CONTENT_HEIGHT_PX = 96;
 // Por debajo de este límite la altura es la suma real de las filas, nunca un
 // valor fijo.
 const MAX_VISIBLE_ROWS = 5;
+// Banner del hint de primera vez: una línea de texto (text-xs, ~16px) +
+// padding vertical (py-1.5 = 6px arriba y abajo) + borde -- se suma al
+// cálculo SOLO cuando se muestra, para no reservarle espacio de forma
+// permanente a algo que la mayoría de sesiones (usuario que ya lo cerró)
+// nunca vuelve a ver.
+const HINT_HEIGHT_PX = 28;
 
 // Altura total del panel expandido para `rowCount` Tracks editables. Crece
 // con cada fila real hasta MAX_VISIBLE_ROWS; a partir de ahí se satura y el
 // `overflow-y-auto` ya presente en el wrapper de contenido empieza a
 // scrollear las filas que no quepan.
-function computeExpandedPanelHeight(rowCount: number): number {
+function computeExpandedPanelHeight(rowCount: number, showHint: boolean): number {
   if (rowCount === 0) {
     return HEADER_HEIGHT_PX + EMPTY_CONTENT_HEIGHT_PX;
   }
   const visibleRows = Math.min(rowCount, MAX_VISIBLE_ROWS);
   const rowsHeight = visibleRows * ROW_HEIGHT_PX + (visibleRows - 1) * CONTENT_GAP_PX;
+  const hintHeight = showHint ? HINT_HEIGHT_PX + CONTENT_GAP_PX : 0;
   return (
     HEADER_HEIGHT_PX +
     CONTENT_VERTICAL_PADDING_PX +
+    hintHeight +
     STEP_NUMBERS_HEIGHT_PX +
     CONTENT_GAP_PX +
     rowsHeight
@@ -78,8 +88,10 @@ export function SequencerPanel({ bpm }: SequencerPanelProps) {
   const trackPatterns = useStudioStore((state) => state.trackPatterns);
   const isLoadingPatterns = useStudioStore((state) => state.isLoadingPatterns);
   const setTrackPattern = useStudioStore((state) => state.setTrackPattern);
+  const currentUserId = useStudioStore((state) => state.currentUserId);
   const drumTrack = findDrumTrack(tracks);
   const drumPattern = drumTrack ? (trackPatterns[drumTrack.id] ?? null) : null;
+  const { showHint, dismiss: dismissHint } = useSequencerHint(currentUserId);
 
   const { isPlaying, currentStep, play, stop } = useSequencer({
     bpm,
@@ -104,7 +116,11 @@ export function SequencerPanel({ bpm }: SequencerPanelProps) {
   });
 
   const editableTracks = tracks.filter((track) => trackPatterns[track.id]);
-  const expandedHeightPx = computeExpandedPanelHeight(editableTracks.length);
+  // Sin sentido mostrar el hint si todavía no hay ningún grid que editar --
+  // solo cuenta como "visible" (y solo entonces ocupa altura) cuando de
+  // verdad hay algo con lo que interactuar.
+  const hintVisible = showHint && editableTracks.length > 0;
+  const expandedHeightPx = computeExpandedPanelHeight(editableTracks.length, hintVisible);
 
   return (
     <div
@@ -149,6 +165,21 @@ export function SequencerPanel({ bpm }: SequencerPanelProps) {
         <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 py-2">
           {editableTracks.length > 0 ? (
             <>
+              {hintVisible ? (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs text-muted-foreground">
+                  <span>
+                    👆 Haz click en una celda para cambiar el ritmo — el sonido ya está tocando
+                  </span>
+                  <button
+                    type="button"
+                    onClick={dismissHint}
+                    aria-label="Cerrar aviso"
+                    className="shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:text-foreground"
+                  >
+                    <X className="size-3.5" aria-hidden />
+                  </button>
+                </div>
+              ) : null}
               {/* Numeración compartida (1-16, no 0-15): una sola fila arriba
                   de todos los grids en vez de repetirla por Track -- ahorra
                   alto (clave para que quepan sin scroll) y garantiza que
@@ -162,7 +193,13 @@ export function SequencerPanel({ bpm }: SequencerPanelProps) {
                     track={track}
                     pattern={trackPatterns[track.id]}
                     currentStep={currentStep}
-                    onToggleStep={(stepIndex) => toggleStep(track.id, stepIndex)}
+                    onToggleStep={(stepIndex) => {
+                      // El hint desaparece en cuanto el usuario interactúa
+                      // con cualquier step, no solo con la X -- "haz click
+                      // en una celda" ya cumplió su propósito en ese momento.
+                      dismissHint();
+                      toggleStep(track.id, stepIndex);
+                    }}
                   />
                 ))}
               </div>
@@ -214,7 +251,20 @@ function PatternGrid({ track, pattern, currentStep, onToggleStep }: PatternGridP
 
   return (
     <div className={cn('space-y-1 rounded-md p-1.5', colors.rowTint)}>
-      <span className="text-xs text-muted-foreground">{track.name}</span>
+      {/* Nombre real del sonido EN LA MISMA LÍNEA que track.name (no debajo,
+          como en TrackRow) a propósito: añadir una línea nueva aquí cambiaría
+          ROW_HEIGHT_PX y con ello toda la altura calculada del panel (ver
+          arriba) -- inline evita tocar ese cálculo ya afinado. */}
+      <span className="flex items-baseline gap-1.5">
+        <span className="text-xs text-muted-foreground">{track.name}</span>
+        {/* Igual que en TrackRow: si el nombre ya ES el sonido (p.ej. un
+            DRUM llamado "Kick"), no repetirlo al lado. */}
+        {TRACK_TYPE_LABELS[track.type] !== track.name ? (
+          <span className="text-[10px] text-muted-foreground/50">
+            {TRACK_TYPE_LABELS[track.type]}
+          </span>
+        ) : null}
+      </span>
       <div className="flex gap-1">
         {pattern.steps.map((step, index) => (
           <button
