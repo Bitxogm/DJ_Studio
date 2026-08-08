@@ -34,9 +34,14 @@ describe('Patterns: creación y validación de steps', () => {
     expect(pattern.steps).toHaveLength(16);
     expect(pattern.lengthInBars).toBe(1);
 
+    // No se comprueba la longitud total de la lista: createTrackFor ya deja
+    // un Pattern propio (el Track nace con uno vacío, ver track.service.ts),
+    // así que aquí hay 2 en total -- lo que importa es que el que acabamos
+    // de crear aparezca, no cuántos hay.
     const listRes = await agent.get(`/api/tracks/${track.id}/patterns`);
     expect(listRes.status).toBe(200);
-    expect((listRes.body as PatternResponseBody).patterns).toHaveLength(1);
+    const patterns = (listRes.body as PatternResponseBody).patterns!;
+    expect(patterns.some((p) => p.id === pattern.id)).toBe(true);
   });
 
   it('rechaza steps con velocity fuera de rango (0-1)', async () => {
