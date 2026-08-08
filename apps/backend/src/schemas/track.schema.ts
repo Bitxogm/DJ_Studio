@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
-export const trackTypeSchema = z.enum(['DRUM', 'SYNTH', 'SAMPLE', 'BASS']);
+export const trackTypeSchema = z.enum([
+  'DRUM',
+  'SYNTH',
+  'SAMPLE',
+  'BASS',
+  'HIHAT',
+  'SNARE',
+  'HIHAT_OPEN',
+]);
 
 export const createTrackSchema = z.object({
   name: z.string().min(1),
