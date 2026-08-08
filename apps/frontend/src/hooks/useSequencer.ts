@@ -7,6 +7,7 @@ import type { Pattern, Track, TrackType } from '@beatforge/shared';
 import {
   applyMixerStateToVoices,
   defaultNoteForTrackType,
+  findChokeTargetTrackId,
   resolveStepTrigger,
   synthKindForTrackType,
 } from '@/lib/sequencer/logic';
@@ -73,11 +74,10 @@ function createSynthForTrackType(type: TrackType): TrackSynth | null {
   }
 }
 
-// HIHAT y SNARE comparten clase (NoiseSynth, ver synthKindForTrackType) pero
-// no timbre: un hi-hat cerrado es corto y brillante, un snare/clap tiene más
-// cuerpo y algo de sustain. MetalSynth (FM con parciales metálicos) se
-// descarta para ambos por estar pensado para campana/platillo, no para un
-// golpe basado en ruido.
+// HIHAT, SNARE y HIHAT_OPEN comparten clase (NoiseSynth, ver
+// synthKindForTrackType) pero no timbre. MetalSynth (FM con parciales
+// metálicos) se descarta para los tres por estar pensado para
+// campana/platillo, no para un golpe basado en ruido.
 function createNoiseSynthForTrackType(type: TrackType): Tone.NoiseSynth {
   if (type === 'SNARE') {
     // Ruido rosa (más cuerpo/graves que el blanco) + decay/release más
@@ -86,6 +86,16 @@ function createNoiseSynthForTrackType(type: TrackType): Tone.NoiseSynth {
     return new Tone.NoiseSynth({
       noise: { type: 'pink' },
       envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.1 },
+    });
+  }
+  if (type === 'HIHAT_OPEN') {
+    // Mismo ruido BLANCO que el cerrado (a propósito: es físicamente el
+    // mismo instrumento, mismo espectro, solo cambia cuánto se deja sonar) +
+    // decay/release mucho más largos -- el "shhh" sostenido característico.
+    // El choke real (el cerrado corta este sonido en curso) no vive aquí,
+    // vive en el callback de la Sequence del HIHAT -- ver findChokeTargetTrackId.
+    return new Tone.NoiseSynth({
+      envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.3 },
     });
   }
   // HIHAT: ruido blanco + envelope muy corto -- el estándar para hi-hats
@@ -215,6 +225,10 @@ export function useSequencer({
         const defaultNote = defaultNoteForTrackType(track.type);
         const trackId = track.id;
         const stepIndices = pattern.steps.map((_, index) => index);
+        // Choke de hi-hat: solo tiene valor si track es el HIHAT cerrado Y
+        // existe un HIHAT_OPEN en el proyecto -- calculado una vez aquí
+        // (como defaultNote/stepIndices), no en cada tick del callback.
+        const chokeTargetTrackId = findChokeTargetTrackId(tracksRef.current, track.type);
 
         const sequence = new Tone.Sequence<number>(
           (time, stepIndex) => {
@@ -225,6 +239,13 @@ export function useSequencer({
             const step = currentPattern?.steps[stepIndex];
             const trigger = step ? resolveStepTrigger(step, defaultNote) : null;
             if (trigger) {
+              // El cerrado corta el abierto en curso ANTES de disparar su
+              // propio golpe -- si el abierto todavía no tiene voz
+              // construida (no ha sonado nunca, o su Track no tiene
+              // Pattern), no hay nada que cortar y no pasa nada.
+              if (chokeTargetTrackId) {
+                voicesRef.current.get(chokeTargetTrackId)?.synth.triggerRelease(time);
+              }
               // NoiseSynth no tiene altura (es ruido filtrado): su
               // triggerAttackRelease no lleva nota, a diferencia de
               // MembraneSynth/MonoSynth -- ver Tone/instrument/NoiseSynth.ts.

@@ -65,6 +65,7 @@ enum TrackType {
   BASS
   HIHAT
   SNARE
+  HIHAT_OPEN
 }
 
 /// Una pista dentro de un Proyecto (batería, bajo, synth, sample...), con su

@@ -13,12 +13,12 @@ export interface StepTrigger {
 
 // Nota por defecto cuando un step activo no especifica la suya -- varía por
 // tipo de Track porque un valor fijo (p.ej. 'C1' para todo) no tendría
-// sentido para un synth de bajo. HIHAT y SNARE caen en el default: tienen
-// synth soportado (NoiseSynth, ver synthKindForTrackType) pero son ruido
-// filtrado sin altura, así que el valor devuelto aquí no se usa -- ver el
-// branch por tipo de synth en useSequencer.ts. Los tipos sin synth soportado
-// hoy (SYNTH, SAMPLE) tienen igualmente un valor por si en el futuro lo
-// necesitan.
+// sentido para un synth de bajo. HIHAT, SNARE y HIHAT_OPEN caen en el
+// default: tienen synth soportado (NoiseSynth, ver synthKindForTrackType)
+// pero son ruido filtrado sin altura, así que el valor devuelto aquí no se
+// usa -- ver el branch por tipo de synth en useSequencer.ts. Los tipos sin
+// synth soportado hoy (SYNTH, SAMPLE) tienen igualmente un valor por si en
+// el futuro lo necesitan.
 export function defaultNoteForTrackType(type: TrackType): string {
   switch (type) {
     case 'DRUM':
@@ -33,10 +33,10 @@ export function defaultNoteForTrackType(type: TrackType): string {
 // Qué clase de synth de Tone.js le corresponde a cada TrackType. Tabla pura
 // (sin importar 'tone') para poder testear el mapeo tipo->synth sin
 // necesitar Web Audio -- useSequencer.ts consulta esta tabla y es el único
-// sitio que sabe instanciar las clases reales de Tone.js. HIHAT y SNARE
-// comparten la misma clase (NoiseSynth) pero NO la misma configuración --
-// eso vive en useSequencer.ts (createNoiseSynthForTrackType), no aquí: esta
-// tabla solo responde "qué clase", no "con qué parámetros".
+// sitio que sabe instanciar las clases reales de Tone.js. HIHAT, SNARE y
+// HIHAT_OPEN comparten la misma clase (NoiseSynth) pero NO la misma
+// configuración -- eso vive en useSequencer.ts (createNoiseSynthForTrackType),
+// no aquí: esta tabla solo responde "qué clase", no "con qué parámetros".
 export type SynthKind = 'MembraneSynth' | 'MonoSynth' | 'NoiseSynth' | null;
 
 export function synthKindForTrackType(type: TrackType): SynthKind {
@@ -47,10 +47,25 @@ export function synthKindForTrackType(type: TrackType): SynthKind {
       return 'MonoSynth';
     case 'HIHAT':
     case 'SNARE':
+    case 'HIHAT_OPEN':
       return 'NoiseSynth';
     default:
       return null;
   }
+}
+
+// Choke de hi-hat: en un kit real, el hi-hat cerrado corta el sonido del
+// abierto en curso (comparten "voice group") -- nunca al revés. Devuelve el
+// trackId del Hi-hat abierto a cortar cuando `type` es el cerrado (HIHAT) y
+// existe un Track HIHAT_OPEN en el proyecto, o null si no aplica (no es
+// HIHAT, o no hay ningún HIHAT_OPEN todavía). Pura y sin Tone.js a propósito:
+// la decisión de "a quién chocar" es testeable aparte de la llamada real a
+// synth.triggerRelease(), que sí vive en useSequencer.ts.
+export function findChokeTargetTrackId(tracks: Track[], type: TrackType): string | null {
+  if (type !== 'HIHAT') {
+    return null;
+  }
+  return tracks.find((track) => track.type === 'HIHAT_OPEN')?.id ?? null;
 }
 
 // Decide si un step debe sonar y con qué nota/velocity. `defaultNote` la

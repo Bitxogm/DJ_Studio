@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyMixerStateToVoices,
   defaultNoteForTrackType,
+  findChokeTargetTrackId,
   findDrumTrack,
   getPlayDisabledReason,
   hasAnySoloedTrack,
@@ -58,6 +59,10 @@ describe('defaultNoteForTrackType', () => {
   it('SNARE también es ruido sin altura (comparte NoiseSynth con HIHAT) -- el valor devuelto no se usa', () => {
     expect(defaultNoteForTrackType('SNARE')).toBe('C3');
   });
+
+  it('HIHAT_OPEN también es ruido sin altura -- el valor devuelto no se usa', () => {
+    expect(defaultNoteForTrackType('HIHAT_OPEN')).toBe('C3');
+  });
 });
 
 describe('synthKindForTrackType', () => {
@@ -77,9 +82,43 @@ describe('synthKindForTrackType', () => {
     expect(synthKindForTrackType('SNARE')).toBe('NoiseSynth');
   });
 
+  it('HIHAT_OPEN también usa NoiseSynth (misma clase que HIHAT, distinta configuración en useSequencer)', () => {
+    expect(synthKindForTrackType('HIHAT_OPEN')).toBe('NoiseSynth');
+  });
+
   it('tipos sin synth soportado hoy (SYNTH, SAMPLE) devuelven null', () => {
     expect(synthKindForTrackType('SYNTH')).toBeNull();
     expect(synthKindForTrackType('SAMPLE')).toBeNull();
+  });
+});
+
+describe('findChokeTargetTrackId', () => {
+  it('devuelve el trackId del HIHAT_OPEN cuando type es HIHAT y existe un HIHAT_OPEN', () => {
+    const tracks = [
+      track({ id: 'closed', type: 'HIHAT' }),
+      track({ id: 'open', type: 'HIHAT_OPEN' }),
+    ];
+    expect(findChokeTargetTrackId(tracks, 'HIHAT')).toBe('open');
+  });
+
+  it('devuelve null si type es HIHAT pero no hay ningún HIHAT_OPEN en el proyecto', () => {
+    const tracks = [track({ id: 'closed', type: 'HIHAT' })];
+    expect(findChokeTargetTrackId(tracks, 'HIHAT')).toBeNull();
+  });
+
+  it('devuelve null para HIHAT_OPEN -- el choke es de un solo sentido, el abierto nunca corta al cerrado', () => {
+    const tracks = [
+      track({ id: 'closed', type: 'HIHAT' }),
+      track({ id: 'open', type: 'HIHAT_OPEN' }),
+    ];
+    expect(findChokeTargetTrackId(tracks, 'HIHAT_OPEN')).toBeNull();
+  });
+
+  it('devuelve null para cualquier otro TrackType, aunque haya un HIHAT_OPEN presente', () => {
+    const tracks = [track({ id: 'open', type: 'HIHAT_OPEN' })];
+    expect(findChokeTargetTrackId(tracks, 'DRUM')).toBeNull();
+    expect(findChokeTargetTrackId(tracks, 'BASS')).toBeNull();
+    expect(findChokeTargetTrackId(tracks, 'SNARE')).toBeNull();
   });
 });
 

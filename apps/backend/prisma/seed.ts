@@ -72,6 +72,20 @@ function backbeatSnareSteps(): PatternStepSeed[] {
   });
 }
 
+// Un único golpe abierto en el último contratiempo del compás (índice 15 de
+// 16, 0-indexado -- step 16 en la numeración 1-16 de la UI): patrón puntual
+// típico para dar variación al final de cada vuelta del loop, no denso como
+// el hi-hat cerrado. El cerrado (constantHihatSteps) YA suena en ese mismo
+// índice -- el choke real (ver findChokeTargetTrackId/useSequencer) corta
+// este golpe abierto justo cuando llega el siguiente cerrado, como en un
+// kit real.
+function openHihatAccentSteps(): PatternStepSeed[] {
+  return Array.from({ length: 16 }, (_, i) => {
+    const active = i === 15;
+    return { active, note: null, velocity: active ? 0.7 : 0 };
+  });
+}
+
 async function main(): Promise<void> {
   if (config.nodeEnv === 'production') {
     throw new Error(
@@ -167,6 +181,23 @@ async function main(): Promise<void> {
                   },
                 },
               },
+              {
+                name: 'Hi-hat abierto',
+                type: 'HIHAT_OPEN',
+                order: 4,
+                volume: 0.7,
+                instrumentConfig: {
+                  synth: 'NoiseSynth',
+                  envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.3 },
+                },
+                patterns: {
+                  create: {
+                    name: 'Acento final',
+                    steps: openHihatAccentSteps(),
+                    timelinePosition: 0,
+                  },
+                },
+              },
             ],
           },
         },
@@ -183,7 +214,7 @@ async function main(): Promise<void> {
   });
 
   console.log('Seed de desarrollo aplicado:');
-  console.log(`  - ${demo1.email} — con proyecto de ejemplo (4 tracks, 4 patterns)`);
+  console.log(`  - ${demo1.email} — con proyecto de ejemplo (5 tracks, 5 patterns)`);
   console.log(`  - ${demo2.email} — sin proyectos (usuario recién registrado)`);
 }
 

@@ -44,4 +44,9 @@ export const TRACK_TYPE_COLORS: Record<TrackType, TrackTypeColor> = {
     stepActive: 'border-red-500/60 bg-red-500/40 hover:bg-red-500/50',
     rowTint: 'bg-red-500/[0.06]',
   },
+  HIHAT_OPEN: {
+    badge: 'border-lime-500/30 bg-lime-500/15 text-lime-400',
+    stepActive: 'border-lime-500/60 bg-lime-500/40 hover:bg-lime-500/50',
+    rowTint: 'bg-lime-500/[0.06]',
+  },
 };

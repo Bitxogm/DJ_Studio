@@ -25,7 +25,15 @@ export interface Project {
 }
 
 // ─── Track ────────────────────────────────────────────────────────────────────
-export const TRACK_TYPES = ['DRUM', 'SYNTH', 'SAMPLE', 'BASS', 'HIHAT', 'SNARE'] as const;
+export const TRACK_TYPES = [
+  'DRUM',
+  'SYNTH',
+  'SAMPLE',
+  'BASS',
+  'HIHAT',
+  'SNARE',
+  'HIHAT_OPEN',
+] as const;
 export type TrackType = (typeof TRACK_TYPES)[number];
 
 export interface Track {
